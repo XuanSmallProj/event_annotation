@@ -1,0 +1,4 @@
+dataset/
+*.csv
+*.xlsx
+__pycache__

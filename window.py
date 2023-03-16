@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import (QMainWindow, QLabel, QWidget, QHBoxLayout, QVBoxLayout, QApplication, QSlider)
+from PySide6.QtWidgets import (QMainWindow, QLabel, QWidget, QToolBar, QHBoxLayout, QVBoxLayout, QApplication, QSlider, QFileDialog, QMenu, QMenuBar)
 from PySide6.QtCore import Signal, Slot, QThread, Qt
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QImage, QPixmap, QAction
 from multiprocessing import Queue, shared_memory
 from msg import Msg, MsgType as msgtp
 import numpy as np
@@ -110,6 +110,8 @@ class AnnWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Annotator")
 
+        self._create_tool_bar()
+
         top_hlayout = QHBoxLayout()
         self._create_image_viewer(top_hlayout)
         
@@ -136,9 +138,21 @@ class AnnWindow(QMainWindow):
         self.slider.setFixedWidth(640)
         vlayout.addWidget(self.slider)
         top_hlayout.addLayout(vlayout)
+    
+    def _create_tool_bar(self):
+        toolbar = QToolBar("top tool bar")
+        self.addToolBar(toolbar)
+        button_action = QAction("Open", self)
+        button_action.setStatusTip("Open Video")
+        button_action.triggered.connect(self.open_video)
+        toolbar.addAction(button_action)
 
     def _create_control_pannel(self, top_hlayout):
         pass
+
+    @Slot()
+    def open_video(self):
+        img_path, _ = QFileDialog.getOpenFileName()
 
     @Slot(QImage)
     def set_image(self, image):
@@ -151,7 +165,7 @@ class AnnWindow(QMainWindow):
     @Slot()
     def slider_released(self):
         self.q_view.put(Msg(msgtp.VIEW_PLAY, self.slider.value()), block=False)
-    
+
     def closeEvent(self, event) -> None:
         self.th.terminate()
         return super().closeEvent(event)

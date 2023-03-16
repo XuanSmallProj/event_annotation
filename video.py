@@ -12,7 +12,6 @@ class Video:
         self.width, self.height = 0, 0
 
         self.close = False
-        self.reading = True
 
         self.q_video = q_video
         self.q_cmd = q_cmd
@@ -70,20 +69,16 @@ class Video:
     def execute_cmd(self, cmd: Msg):
         if cmd.type == msgtp.CLOSE:
             self.close = True
-            self.reading = False
         elif cmd.type == msgtp.OPEN:
             self.open(cmd.data)
         elif cmd.type == msgtp.EXTENT:
             self.frame_end = max(self.frame_cur - 1, cmd.data)
-            self.reading = True
         elif cmd.type == msgtp.CLOSE_SHM:
             self.unlink_shm(cmd.data)
-        elif cmd.type == msgtp.CANCEL_READ:
-            self.reading = False
         elif cmd.type == msgtp.SEEK:
             self.frame_start = cmd.data
             self.frame_cur = self.frame_start
-            self.frame_end = self.frame_start - 1
+            self.frame_end = self.frame_start
             if self.cap:
                 self.set_frame(self.frame_start)
 
@@ -113,7 +108,7 @@ class Video:
     def read_frames(self, maxframes=3):
         results = []
         init_id = self.frame_cur
-        while not self.close and self.frame_cur <= self.frame_end and self.reading:
+        while not self.close and self.frame_cur <= self.frame_end:
             if self.cap is None:
                 break
             ret, frame = self.cap.read()

@@ -47,8 +47,8 @@ class Thread(QThread):
 
         self.q_view = q_view
 
-        self.view_pause = False
         self.view_frame_id = 0  # next frame to consume
+        self.view_last_to_show = 0  # last frame to show
 
         self.buffer = []
 
@@ -58,6 +58,9 @@ class Thread(QThread):
         self.video_meta: VideoMetaData = VideoMetaData(0, 1)
         self.annotations: List[Tuple[TimeStamp, TimeStamp]] = []
 
+    def is_paused(self):
+        return self.view_last_to_show < self.view_frame_id
+
     def open(self, path):
         if get_video_name(path) == self.video_name:
             return
@@ -65,16 +68,15 @@ class Thread(QThread):
         self.q_cmd.put(Msg(msgtp.OPEN, path), block=False)
 
     def pause(self):
-        self.view_pause = True
-        self.q_cmd.put(Msg(msgtp.CANCEL_READ), block=False)
+        self.view_last_to_show = self.view_frame_id - 2
 
     def play(self):
-        self.view_pause = False
-        self.q_cmd.put(Msg(msgtp.EXTENT, self.view_frame_id + 100), block=False)
+        self.view_last_to_show = self.view_frame_id + 100
+        self.q_cmd.put(Msg(msgtp.EXTENT, self.view_last_to_show), block=False)
 
     def seek(self, seek_id):
-        self.pause()
         self.view_frame_id = seek_id
+        self.view_last_to_show = seek_id
         self.buffer = []
         self.q_cmd.put(Msg(msgtp.SEEK, seek_id), block=False)
 
@@ -96,7 +98,7 @@ class Thread(QThread):
             elif msg.type == msgtp.VIEW_OPEN:
                 self.open(msg.data)
             elif msg.type == msgtp.VIEW_TOGGLE:
-                if self.view_pause:
+                if self.is_paused():
                     self.play()
                 else:
                     self.pause()
@@ -127,6 +129,7 @@ class Thread(QThread):
                 self.sig_update_annotation_table.emit(self.annotations)
                 self.sig_update_slider_config.emit(self.video_meta.total_frame)
                 self.view_frame_id = 0
+                self.view_last_to_show = 0
                 self.seek(0)
                 self.play()
 
@@ -134,10 +137,8 @@ class Thread(QThread):
             pass
 
     def update_view(self):
-        if self.view_pause:
-            return
         cur_t = time.time()
-        if self.buffer and cur_t - self.last_update_t >= 1.0 / 25:
+        if self.buffer and cur_t - self.last_update_t >= 1.0 / 25 and self.view_last_to_show >= self.view_frame_id:
             item: BufferItem = self.buffer[0]
             self.change_view_image(item.frames[item.cursor])
             item.cursor += 1

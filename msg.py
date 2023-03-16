@@ -4,7 +4,6 @@ class MsgType(IntEnum):
     CLOSE = 0
     OPEN = auto()
     EXTENT = auto()
-    CANCEL_READ = auto()
     CLOSE_SHM = auto()
     SEEK = auto()
 

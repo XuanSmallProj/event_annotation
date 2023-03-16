@@ -73,19 +73,19 @@ class Video:
             self.reading = False
         elif cmd.type == msgtp.OPEN:
             self.open(cmd.data)
-        elif cmd.type == msgtp.READ:
-            self.frame_start = cmd.data[0]
-            self.frame_end = cmd.data[1]
-            self.frame_cur = self.frame_start
-            self.reading = True
-            if self.cap:
-                self.set_frame(self.frame_start)
         elif cmd.type == msgtp.EXTENT:
-            self.frame_end += cmd.data
+            self.frame_end = max(self.frame_cur - 1, cmd.data)
+            self.reading = True
         elif cmd.type == msgtp.CLOSE_SHM:
             self.unlink_shm(cmd.data)
         elif cmd.type == msgtp.CANCEL_READ:
             self.reading = False
+        elif cmd.type == msgtp.SEEK:
+            self.frame_start = cmd.data
+            self.frame_cur = self.frame_start
+            self.frame_end = self.frame_start - 1
+            if self.cap:
+                self.set_frame(self.frame_start)
 
     def read_cmd(self):
         while True:

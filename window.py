@@ -31,9 +31,9 @@ class Thread(QThread):
         self.q_cmd = q_cmd
 
         self.q_view = q_view
+
         self.view_pause = False
-        self.view_frame_id = 0
-        self.view_subscribe_id = 0
+        self.view_frame_id = 0  # next frame to consume
 
         self.buffer = []
 
@@ -53,11 +53,15 @@ class Thread(QThread):
         self.view_pause = True
         self.q_cmd.put(Msg(msgtp.CANCEL_READ), block=False)
     
-    def play(self, frame_id):
+    def play(self):
         self.view_pause = False
-        self.view_frame_id = frame_id
-        self.view_subscribe_id = self.view_frame_id + 100
-        self.q_cmd.put(Msg(msgtp.READ, (self.view_frame_id, self.view_subscribe_id)))
+        self.q_cmd.put(Msg(msgtp.EXTENT, self.view_frame_id + 100), block=False)
+    
+    def seek(self, seek_id):
+        self.pause()
+        self.view_frame_id = seek_id
+        self.buffer = []
+        self.q_cmd.put(Msg(msgtp.SEEK, seek_id), block=False)
 
     def change_view_image(self, frame):
         h, w, ch = frame.shape
@@ -73,14 +77,16 @@ class Thread(QThread):
             if msg.type == msgtp.VIEW_PAUSE:
                 self.pause()
             elif msg.type == msgtp.VIEW_PLAY:
-                self.play(msg.data)
+                self.play()
             elif msg.type == msgtp.VIEW_OPEN:
                 self.open(msg.data)
             elif msg.type == msgtp.VIEW_TOGGLE:
                 if self.view_pause:
-                    self.play(self.view_frame_id)
+                    self.play()
                 else:
                     self.pause()
+            elif msg.type == msgtp.VIEW_SEEK:
+                self.seek(msg.data)
 
     def read_video(self):
         try:
@@ -101,7 +107,9 @@ class Thread(QThread):
                 ann_text = annotations_to_str(self.annotations)
                 self.sig_update_annotation_text.emit(ann_text)
                 self.sig_update_slider_config.emit(self.video_meta.total_frame)
-                self.play(0)
+                self.view_frame_id = 0
+                self.seek(0)
+                self.play()
 
         except queue.Empty:
             pass
@@ -123,11 +131,10 @@ class Thread(QThread):
             self.last_update_t = cur_t
 
     def terminate(self):
-        self.q_cmd.put(Msg(msgtp.CLOSE, None))
+        self.q_cmd.put(Msg(msgtp.CLOSE, None), block=False)
         super().terminate()
 
     def run(self):
-        self.q_cmd.put(Msg(msgtp.READ, (0, 100)))
         while True:
             self.read_view()
             self.read_video()
@@ -198,6 +205,9 @@ class AnnWindow(QMainWindow):
 
     def play(self):
         self.q_view.put(Msg(msgtp.VIEW_PLAY, None), block=False)
+    
+    def seek(self, seek_id):
+        self.q_view.put(Msg(msgtp.VIEW_SEEK, seek_id), block=False)
 
     @Slot()
     def open_video(self):
@@ -214,6 +224,7 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def slider_released(self):
+        self.seek(self.slider.value())
         self.play()
 
     @Slot()

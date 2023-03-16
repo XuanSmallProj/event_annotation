@@ -12,6 +12,7 @@ class MsgType(IntEnum):
     VIEW_OPEN = auto()
     VIEW_PAUSE = auto()
     VIEW_PLAY = auto()
+    VIEW_TOGGLE = auto()
 
 class Msg:
     def __init__(self, type: MsgType, data=None) -> None:

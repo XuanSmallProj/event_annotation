@@ -74,6 +74,11 @@ class Thread(QThread):
                 self.play(msg.data)
             elif msg.type == msgtp.VIEW_OPEN:
                 self.open(msg.data)
+            elif msg.type == msgtp.VIEW_TOGGLE:
+                if self.view_pause:
+                    self.play(self.view_frame_id)
+                else:
+                    self.pause()
 
     def read_video(self):
         try:
@@ -181,6 +186,15 @@ class AnnWindow(QMainWindow):
         self.annotate_text.setReadOnly(True)
         return vlayout
 
+    def pause(self):
+        self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)
+    
+    def toggle(self):
+        self.q_view.put(Msg(msgtp.VIEW_TOGGLE, None), block=False)
+
+    def play(self):
+        self.q_view.put(Msg(msgtp.VIEW_PLAY, None), block=False)
+
     @Slot()
     def open_video(self):
         img_path, _ = QFileDialog.getOpenFileName()
@@ -192,19 +206,20 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def slider_pressed(self):
-        self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)
+        self.pause()
 
     @Slot()
     def slider_released(self):
-        self.q_view.put(Msg(msgtp.VIEW_PLAY, self.slider.value()), block=False)
+        self.play()
 
     def closeEvent(self, event) -> None:
         self.th.terminate()
         return super().closeEvent(event)
-
-
-if __name__ == "__main__":
-    app = QApplication()
-    w = AnnWindow(None, None, None)
-    w.show()
-    app.exec()
+    
+    def keyPressEvent(self, event) -> None:
+        return super().keyPressEvent(event)
+    
+    def keyReleaseEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Space:
+            self.toggle()
+        return super().keyReleaseEvent(event)

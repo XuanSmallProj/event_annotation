@@ -102,6 +102,9 @@ class Thread(QThread):
                     self.pause()
             elif msg.type == msgtp.VIEW_SEEK:
                 self.seek(msg.data)
+            elif msg.type == msgtp.VIEW_SEEK_BY_TIME:
+                frame_id = self.video_meta.time_to_frame(msg.data)
+                self.seek(frame_id)
 
     def read_video(self):
         try:
@@ -183,6 +186,7 @@ class AnnWindow(QMainWindow):
     def setup_connection(self):
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.sliderPressed.connect(self.slider_pressed)
+        self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.th.sig_update_frame.connect(self.set_image)
         self.th.sig_update_annotation_table.connect(self.update_ann_table)
         self.th.sig_update_slider_config.connect(self.slider_change_config)
@@ -225,6 +229,9 @@ class AnnWindow(QMainWindow):
 
     def seek(self, seek_id):
         self.q_view.put(Msg(msgtp.VIEW_SEEK, seek_id), block=False)
+    
+    def seek_by_time(self, ts):
+        self.q_view.put(Msg(msgtp.VIEW_SEEK_BY_TIME, ts), block=False)
 
     @Slot()
     def open_video(self):
@@ -257,6 +264,11 @@ class AnnWindow(QMainWindow):
             self.annotation_table.insertRow(i)
             self.annotation_table.setItem(i, 0, item0)
             self.annotation_table.setItem(i, 1, item1)
+    
+    @Slot(QTableWidgetItem)
+    def on_double_click_table_item(self, item: QTableWidgetItem):
+        ts = TimeStamp.from_str(item.text())
+        self.seek_by_time(ts)
 
     def closeEvent(self, event) -> None:
         self.th.terminate()

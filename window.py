@@ -6,7 +6,7 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import get_video_name
+from utils import get_video_name, annotations_to_str
 
 
 class BufferItem:
@@ -23,6 +23,7 @@ class BufferItem:
 
 class Thread(QThread):
     sig_update_frame = Signal(QImage)
+    sig_update_annotation_text = Signal(str)
     def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue):
         super().__init__(parent=parent)
         self.q_frame = q_frame
@@ -38,6 +39,7 @@ class Thread(QThread):
         self.last_update_t = 0
 
         self.video_name = ""
+        self.annotations = []
 
     def open(self, path):
         if get_video_name(path) == self.video_name:
@@ -88,7 +90,9 @@ class Thread(QThread):
                     self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name))
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
-                self.video_name = msg.data
+                self.video_name, self.annotations = msg.data
+                ann_text = annotations_to_str(self.annotations)
+                self.sig_update_annotation_text.emit(ann_text)
                 self.play(0)
 
         except queue.Empty:
@@ -149,6 +153,7 @@ class AnnWindow(QMainWindow):
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.th.sig_update_frame.connect(self.set_image)
+        self.th.sig_update_annotation_text.connect(self.annotate_text.setText)
 
     def _create_image_viewer(self):
         vlayout = QVBoxLayout()
@@ -173,6 +178,7 @@ class AnnWindow(QMainWindow):
         self.annotate_text = QTextEdit(self)
         vlayout.addWidget(self.annotate_text)
         self.annotate_text.setFixedWidth(200)
+        self.annotate_text.setReadOnly(True)
         return vlayout
 
     @Slot()

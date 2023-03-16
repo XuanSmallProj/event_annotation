@@ -2,7 +2,8 @@ import cv2
 from multiprocessing import Queue, shared_memory
 from msg import Msg, MsgType as msgtp
 import numpy as np
-from utils import get_video_name
+from utils import get_video_name, annotations_from_str
+import os
 
 class Video:
     def __init__(self, q_video: Queue, q_cmd: Queue) -> None:
@@ -22,6 +23,14 @@ class Video:
 
         self.shm_managed = set()
 
+    def read_annotation(self, video_name, create=False):
+        path = os.path.join("dataset", "annotate", video_name + ".txt")
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return f.read()
+        else:
+            return ""
+
     def open(self, path):
         self.cap = cv2.VideoCapture(path)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
@@ -35,7 +44,12 @@ class Video:
         if not ret:
             return False
 
-        self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, get_video_name(path)), block=False)
+        video_name = get_video_name(path)
+        # read annotation file
+        annotation = self.read_annotation(video_name)
+        annotation = annotations_from_str(annotation)
+        ack_data = (video_name, annotation)
+        self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, ack_data), block=False)
     
     def set_frame(self, frame):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame)

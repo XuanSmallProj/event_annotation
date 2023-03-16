@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QLabel, QWidget, QToolBar, QHBoxLayout, QVBoxLayout, QApplication, QSlider, QFileDialog)
+from PySide6.QtWidgets import (QTextEdit, QMainWindow, QLabel, QWidget, QToolBar, QHBoxLayout, QVBoxLayout, QApplication, QSlider, QFileDialog)
 from PySide6.QtCore import Signal, Slot, QThread, Qt
 from PySide6.QtGui import QImage, QPixmap, QAction
 from multiprocessing import Queue, shared_memory
@@ -133,7 +133,8 @@ class AnnWindow(QMainWindow):
         self._create_tool_bar()
 
         top_hlayout = QHBoxLayout()
-        self._create_image_viewer(top_hlayout)
+        top_hlayout.addLayout(self._create_image_viewer())
+        top_hlayout.addLayout(self._create_control_panel())
         
         central_widget = QWidget(self)
         central_widget.setLayout(top_hlayout)
@@ -149,7 +150,7 @@ class AnnWindow(QMainWindow):
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.th.sig_update_frame.connect(self.set_image)
 
-    def _create_image_viewer(self, top_hlayout):
+    def _create_image_viewer(self):
         vlayout = QVBoxLayout()
         self.img_label = QLabel(self)
         self.img_label.setFixedSize(640, 480)
@@ -157,7 +158,7 @@ class AnnWindow(QMainWindow):
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setFixedWidth(640)
         vlayout.addWidget(self.slider)
-        top_hlayout.addLayout(vlayout)
+        return vlayout
     
     def _create_tool_bar(self):
         toolbar = QToolBar("top tool bar")
@@ -167,8 +168,12 @@ class AnnWindow(QMainWindow):
         button_action.triggered.connect(self.open_video)
         toolbar.addAction(button_action)
 
-    def _create_control_pannel(self, top_hlayout):
-        pass
+    def _create_control_panel(self):
+        vlayout = QVBoxLayout()
+        self.annotate_text = QTextEdit(self)
+        vlayout.addWidget(self.annotate_text)
+        self.annotate_text.setFixedWidth(200)
+        return vlayout
 
     @Slot()
     def open_video(self):

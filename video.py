@@ -2,7 +2,7 @@ import cv2
 from multiprocessing import Queue, shared_memory
 from msg import Msg, MsgType as msgtp
 import numpy as np
-from utils import get_video_name, annotations_from_str
+from utils import get_video_name, annotations_from_str, VideoMetaData
 import os
 
 class Video:
@@ -48,7 +48,8 @@ class Video:
         # read annotation file
         annotation = self.read_annotation(video_name)
         annotation = annotations_from_str(annotation)
-        ack_data = (video_name, annotation)
+        meta_data = VideoMetaData(self.total_frame, self.fps)
+        ack_data = (video_name, meta_data, annotation)
         self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, ack_data), block=False)
     
     def set_frame(self, frame):

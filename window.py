@@ -6,7 +6,7 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import get_video_name, annotations_to_str
+from utils import get_video_name, annotations_to_str, VideoMetaData
 
 
 class BufferItem:
@@ -24,6 +24,7 @@ class BufferItem:
 class Thread(QThread):
     sig_update_frame = Signal(QImage)
     sig_update_annotation_text = Signal(str)
+    sig_update_slider_config = Signal(int)
     def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue):
         super().__init__(parent=parent)
         self.q_frame = q_frame
@@ -39,6 +40,7 @@ class Thread(QThread):
         self.last_update_t = 0
 
         self.video_name = ""
+        self.video_meta: VideoMetaData = VideoMetaData(0, 1)
         self.annotations = []
 
     def open(self, path):
@@ -95,9 +97,10 @@ class Thread(QThread):
                     self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name))
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
-                self.video_name, self.annotations = msg.data
+                self.video_name, self.video_meta, self.annotations = msg.data
                 ann_text = annotations_to_str(self.annotations)
                 self.sig_update_annotation_text.emit(ann_text)
+                self.sig_update_slider_config.emit(self.video_meta.total_frame)
                 self.play(0)
 
         except queue.Empty:
@@ -159,6 +162,7 @@ class AnnWindow(QMainWindow):
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.th.sig_update_frame.connect(self.set_image)
         self.th.sig_update_annotation_text.connect(self.annotate_text.setText)
+        self.th.sig_update_slider_config.connect(self.slider_change_config)
 
     def _create_image_viewer(self):
         vlayout = QVBoxLayout()
@@ -211,6 +215,10 @@ class AnnWindow(QMainWindow):
     @Slot()
     def slider_released(self):
         self.play()
+
+    @Slot()
+    def slider_change_config(self, total):
+        self.slider.setMaximum(total)
 
     def closeEvent(self, event) -> None:
         self.th.terminate()

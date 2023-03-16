@@ -1,4 +1,17 @@
-from PySide6.QtWidgets import (QTextEdit, QMainWindow, QLabel, QWidget, QToolBar, QHBoxLayout, QVBoxLayout, QApplication, QSlider, QFileDialog)
+from PySide6.QtWidgets import (
+    QTextEdit,
+    QMainWindow,
+    QLabel,
+    QWidget,
+    QToolBar,
+    QHBoxLayout,
+    QVBoxLayout,
+    QTableWidget,
+    QTableWidgetItem,
+    QSlider,
+    QFileDialog,
+)
+from PySide6 import QtWidgets
 from PySide6.QtCore import Signal, Slot, QThread, Qt
 from PySide6.QtGui import QImage, QPixmap, QAction
 from multiprocessing import Queue, shared_memory
@@ -6,7 +19,8 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import get_video_name, annotations_to_str, VideoMetaData
+from utils import get_video_name, TimeStamp, VideoMetaData
+from typing import *
 
 
 class BufferItem:
@@ -16,15 +30,16 @@ class BufferItem:
         self.shm_name = shm.name
         self.frames = frames
         self.cursor = 0
-    
+
     def last_frame_id(self):
         return self.init_id + len(self.frames) - 1
 
 
 class Thread(QThread):
     sig_update_frame = Signal(QImage)
-    sig_update_annotation_text = Signal(str)
+    sig_update_annotation_table = Signal(list)
     sig_update_slider_config = Signal(int)
+
     def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue):
         super().__init__(parent=parent)
         self.q_frame = q_frame
@@ -41,7 +56,7 @@ class Thread(QThread):
 
         self.video_name = ""
         self.video_meta: VideoMetaData = VideoMetaData(0, 1)
-        self.annotations = []
+        self.annotations: List[Tuple[TimeStamp, TimeStamp]] = []
 
     def open(self, path):
         if get_video_name(path) == self.video_name:
@@ -52,11 +67,11 @@ class Thread(QThread):
     def pause(self):
         self.view_pause = True
         self.q_cmd.put(Msg(msgtp.CANCEL_READ), block=False)
-    
+
     def play(self):
         self.view_pause = False
         self.q_cmd.put(Msg(msgtp.EXTENT, self.view_frame_id + 100), block=False)
-    
+
     def seek(self, seek_id):
         self.pause()
         self.view_frame_id = seek_id
@@ -94,8 +109,10 @@ class Thread(QThread):
 
             if msg.type == msgtp.VIDEO_FRAMES:
                 init_id, shm_name, mat_shape, mat_dtype = msg.data
-                if ((len(self.buffer) == 0 and init_id == self.view_frame_id) or 
-                    (len(self.buffer) > 0 and (self.buffer[-1].last_frame_id() + 1 == init_id))):
+                if (len(self.buffer) == 0 and init_id == self.view_frame_id) or (
+                    len(self.buffer) > 0
+                    and (self.buffer[-1].last_frame_id() + 1 == init_id)
+                ):
                     shm = shared_memory.SharedMemory(name=shm_name)
                     frames = np.ndarray(mat_shape, dtype=mat_dtype, buffer=shm.buf)
                     self.buffer.append(BufferItem(init_id, frames, shm))
@@ -104,8 +121,7 @@ class Thread(QThread):
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
                 self.video_name, self.video_meta, self.annotations = msg.data
-                ann_text = annotations_to_str(self.annotations)
-                self.sig_update_annotation_text.emit(ann_text)
+                self.sig_update_annotation_table.emit(self.annotations)
                 self.sig_update_slider_config.emit(self.video_meta.total_frame)
                 self.view_frame_id = 0
                 self.seek(0)
@@ -154,7 +170,7 @@ class AnnWindow(QMainWindow):
         top_hlayout = QHBoxLayout()
         top_hlayout.addLayout(self._create_image_viewer())
         top_hlayout.addLayout(self._create_control_panel())
-        
+
         central_widget = QWidget(self)
         central_widget.setLayout(top_hlayout)
         self.setCentralWidget(central_widget)
@@ -168,7 +184,7 @@ class AnnWindow(QMainWindow):
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.th.sig_update_frame.connect(self.set_image)
-        self.th.sig_update_annotation_text.connect(self.annotate_text.setText)
+        self.th.sig_update_annotation_table.connect(self.update_ann_table)
         self.th.sig_update_slider_config.connect(self.slider_change_config)
 
     def _create_image_viewer(self):
@@ -180,7 +196,7 @@ class AnnWindow(QMainWindow):
         self.slider.setFixedWidth(640)
         vlayout.addWidget(self.slider)
         return vlayout
-    
+
     def _create_tool_bar(self):
         toolbar = QToolBar("top tool bar")
         self.addToolBar(toolbar)
@@ -191,21 +207,22 @@ class AnnWindow(QMainWindow):
 
     def _create_control_panel(self):
         vlayout = QVBoxLayout()
-        self.annotate_text = QTextEdit(self)
-        vlayout.addWidget(self.annotate_text)
-        self.annotate_text.setFixedWidth(200)
-        self.annotate_text.setReadOnly(True)
+        self.annotation_table = QTableWidget(self)
+        vlayout.addWidget(self.annotation_table)
+        self.annotation_table.setColumnCount(2)
+        self.annotation_table.setHorizontalHeaderLabels(["start", "end"])
+        self.annotation_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         return vlayout
 
     def pause(self):
         self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)
-    
+
     def toggle(self):
         self.q_view.put(Msg(msgtp.VIEW_TOGGLE, None), block=False)
 
     def play(self):
         self.q_view.put(Msg(msgtp.VIEW_PLAY, None), block=False)
-    
+
     def seek(self, seek_id):
         self.q_view.put(Msg(msgtp.VIEW_SEEK, seek_id), block=False)
 
@@ -231,13 +248,23 @@ class AnnWindow(QMainWindow):
     def slider_change_config(self, total):
         self.slider.setMaximum(total)
 
+    @Slot(list)
+    def update_ann_table(self, annotations):
+        self.annotation_table.clearContents()
+        for i, ann in enumerate(annotations):
+            item0 = QTableWidgetItem(str(ann[0]))
+            item1 = QTableWidgetItem(str(ann[1]))
+            self.annotation_table.insertRow(i)
+            self.annotation_table.setItem(i, 0, item0)
+            self.annotation_table.setItem(i, 1, item1)
+
     def closeEvent(self, event) -> None:
         self.th.terminate()
         return super().closeEvent(event)
-    
+
     def keyPressEvent(self, event) -> None:
         return super().keyPressEvent(event)
-    
+
     def keyReleaseEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Space:
             self.toggle()

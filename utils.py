@@ -22,7 +22,9 @@ class TimeStamp:
         return self.hour * 3600 + self.minute * 60 + self.second
 
 class VideoMetaData:
-    def __init__(self, total_frame, fps):
+    def __init__(self, path, total_frame, fps):
+        self.path = path
+        self.name = get_video_name(path)
         self.total_frame = total_frame
         self.fps = fps
 

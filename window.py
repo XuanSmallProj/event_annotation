@@ -36,9 +36,8 @@ class BufferItem:
 
 
 class Thread(QThread):
-    sig_update_frame = Signal(QImage)
-    sig_update_annotation_table = Signal(list)
-    sig_update_slider_config = Signal(int)
+    sig_update_frame = Signal(int, QImage)
+    sig_open_video = Signal(VideoMetaData, list)
 
     def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue):
         super().__init__(parent=parent)
@@ -54,15 +53,14 @@ class Thread(QThread):
 
         self.last_update_t = 0
 
-        self.video_name = ""
-        self.video_meta: VideoMetaData = VideoMetaData(0, 1)
+        self.video_meta: VideoMetaData = VideoMetaData("", 0, 1)
         self.annotations: List[Tuple[TimeStamp, TimeStamp]] = []
 
     def is_paused(self):
         return self.view_last_to_show < self.view_frame_id
 
     def open(self, path):
-        if get_video_name(path) == self.video_name:
+        if get_video_name(path) == self.video_meta.name:
             return
         self.pause()
         self.q_cmd.put(Msg(msgtp.OPEN, path), block=False)
@@ -80,11 +78,11 @@ class Thread(QThread):
         self.buffer = []
         self.q_cmd.put(Msg(msgtp.SEEK, seek_id), block=False)
 
-    def change_view_image(self, frame):
+    def change_view_image(self, frame_id, frame):
         h, w, ch = frame.shape
         img = QImage(frame.data, w, h, ch * w, QImage.Format_RGB888)
         scaled_img = img.scaled(640, 480, Qt.KeepAspectRatio)
-        self.sig_update_frame.emit(scaled_img)
+        self.sig_update_frame.emit(frame_id, scaled_img)
 
     def read_view(self):
         while True:
@@ -125,9 +123,8 @@ class Thread(QThread):
                     self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name))
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
-                self.video_name, self.video_meta, self.annotations = msg.data
-                self.sig_update_annotation_table.emit(self.annotations)
-                self.sig_update_slider_config.emit(self.video_meta.total_frame)
+                self.video_meta, self.annotations = msg.data
+                self.sig_open_video.emit(self.video_meta, self.annotations)
                 self.view_frame_id = 0
                 self.view_last_to_show = 0
                 self.seek(0)
@@ -140,7 +137,8 @@ class Thread(QThread):
         cur_t = time.time()
         if self.buffer and cur_t - self.last_update_t >= 1.0 / 25 and self.view_last_to_show >= self.view_frame_id:
             item: BufferItem = self.buffer[0]
-            self.change_view_image(item.frames[item.cursor])
+            frame_id = item.init_id + item.cursor
+            self.change_view_image(frame_id, item.frames[item.cursor])
             item.cursor += 1
             if item.cursor >= len(item.frames):
                 self.buffer.pop(0)
@@ -188,9 +186,8 @@ class AnnWindow(QMainWindow):
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
-        self.th.sig_update_frame.connect(self.set_image)
-        self.th.sig_update_annotation_table.connect(self.update_ann_table)
-        self.th.sig_update_slider_config.connect(self.slider_change_config)
+        self.th.sig_update_frame.connect(self.set_frame)
+        self.th.sig_open_video.connect(self.on_open_video)
 
     def _create_image_viewer(self):
         vlayout = QVBoxLayout()
@@ -240,7 +237,8 @@ class AnnWindow(QMainWindow):
         self.q_view.put(Msg(msgtp.VIEW_OPEN, img_path), block=False)
 
     @Slot(QImage)
-    def set_image(self, image):
+    def set_frame(self, frame_id, image):
+        self.slider.setValue(frame_id)
         self.img_label.setPixmap(QPixmap.fromImage(image))
 
     @Slot()
@@ -265,6 +263,11 @@ class AnnWindow(QMainWindow):
             self.annotation_table.insertRow(i)
             self.annotation_table.setItem(i, 0, item0)
             self.annotation_table.setItem(i, 1, item1)
+    
+    @Slot(VideoMetaData, list)
+    def on_open_video(self, meta_data: VideoMetaData, annotations):
+        self.slider_change_config(meta_data.total_frame)
+        self.update_ann_table(annotations)
     
     @Slot(QTableWidgetItem)
     def on_double_click_table_item(self, item: QTableWidgetItem):

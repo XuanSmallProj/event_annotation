@@ -47,8 +47,8 @@ class Video:
         # read annotation file
         annotation = self.read_annotation(video_name)
         annotation = annotations_from_str(annotation)
-        meta_data = VideoMetaData(self.total_frame, self.fps)
-        ack_data = (video_name, meta_data, annotation)
+        meta_data = VideoMetaData(path, self.total_frame, self.fps)
+        ack_data = (meta_data, annotation)
         self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, ack_data), block=False)
     
     def set_frame(self, frame):

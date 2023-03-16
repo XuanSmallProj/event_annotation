@@ -2,9 +2,10 @@ import cv2
 from multiprocessing import Queue, shared_memory
 from msg import Msg, MsgType as msgtp
 import numpy as np
+from utils import get_video_name
 
 class Video:
-    def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
+    def __init__(self, q_video: Queue, q_cmd: Queue) -> None:
         self.cap = None
         self.fps = 1
         self.width, self.height = 0, 0
@@ -12,7 +13,7 @@ class Video:
         self.close = False
         self.reading = True
 
-        self.q_frame = q_frame
+        self.q_video = q_video
         self.q_cmd = q_cmd
 
         self.frame_start = 0
@@ -28,8 +29,13 @@ class Video:
         self.height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         self.total_frame = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)
         ret, _ = self.cap.read()
+        self.frame_start = 0
+        self.frame_end = -1
+        self.frame_cur = 0
         if not ret:
             return False
+
+        self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, get_video_name(path)), block=False)
     
     def set_frame(self, frame):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame)
@@ -51,7 +57,7 @@ class Video:
             self.close = True
             self.reading = False
         elif cmd.type == msgtp.OPEN:
-            pass
+            self.open(cmd.data)
         elif cmd.type == msgtp.READ:
             self.frame_start = cmd.data[0]
             self.frame_end = cmd.data[1]
@@ -86,13 +92,15 @@ class Video:
 
         shm.close()
 
-        msg = Msg(msgtp.FRAMES, (init_id, shm.name, mat.shape, mat.dtype))
-        self.q_frame.put(msg, block=False)
+        msg = Msg(msgtp.VIDEO_FRAMES, (init_id, shm.name, mat.shape, mat.dtype))
+        self.q_video.put(msg, block=False)
 
     def read_frames(self, maxframes=3):
         results = []
         init_id = self.frame_cur
         while not self.close and self.frame_cur <= self.frame_end and self.reading:
+            if self.cap is None:
+                break
             ret, frame = self.cap.read()
             if ret:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

@@ -5,9 +5,11 @@ class MsgType(IntEnum):
     OPEN = auto()
     READ = auto()
     EXTENT = auto()
-    FRAMES = auto()
     CANCEL_READ = auto()
     CLOSE_SHM = auto()
+    VIDEO_OPEN_ACK = auto()
+    VIDEO_FRAMES = auto()
+    VIEW_OPEN = auto()
     VIEW_PAUSE = auto()
     VIEW_PLAY = auto()
 

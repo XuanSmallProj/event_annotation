@@ -15,7 +15,7 @@ def fn_proc_window(q_frame: Queue, q_cmd: Queue):
 
 def fn_proc_video(q_frame: Queue, q_cmd: Queue):
     video = Video(q_frame, q_cmd)
-    video.open("dataset/v_-hhDbvY5aAM.mp4")
+    # video.open("dataset/v_-hhDbvY5aAM.mp4")
     video.run()
 
 

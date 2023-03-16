@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QLabel, QWidget, QToolBar, QHBoxLayout, QVBoxLayout, QApplication, QSlider, QFileDialog, QMenu, QMenuBar)
+from PySide6.QtWidgets import (QMainWindow, QLabel, QWidget, QToolBar, QHBoxLayout, QVBoxLayout, QApplication, QSlider, QFileDialog)
 from PySide6.QtCore import Signal, Slot, QThread, Qt
 from PySide6.QtGui import QImage, QPixmap, QAction
 from multiprocessing import Queue, shared_memory
@@ -6,6 +6,7 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
+from utils import get_video_name
 
 
 class BufferItem:
@@ -36,8 +37,23 @@ class Thread(QThread):
 
         self.last_update_t = 0
 
+        self.video_name = ""
+
     def open(self, path):
-        pass
+        if get_video_name(path) == self.video_name:
+            return
+        self.pause()
+        self.q_cmd.put(Msg(msgtp.OPEN, path), block=False)
+
+    def pause(self):
+        self.view_pause = True
+        self.q_cmd.put(Msg(msgtp.CANCEL_READ), block=False)
+    
+    def play(self, frame_id):
+        self.view_pause = False
+        self.view_frame_id = frame_id
+        self.view_subscribe_id = self.view_frame_id + 100
+        self.q_cmd.put(Msg(msgtp.READ, (self.view_frame_id, self.view_subscribe_id)))
 
     def change_view_image(self, frame):
         h, w, ch = frame.shape
@@ -51,32 +67,36 @@ class Thread(QThread):
                 break
             msg = self.q_view.get(block=False)
             if msg.type == msgtp.VIEW_PAUSE:
-                self.view_pause = True
-                self.q_cmd.put(Msg(msgtp.CANCEL_READ), block=False)
+                self.pause()
             elif msg.type == msgtp.VIEW_PLAY:
-                self.view_pause = False
-                self.view_frame_id = msg.data
-                self.view_expect_id = self.view_frame_id + 100
-                self.q_cmd.put(Msg(msgtp.READ, (self.view_frame_id, self.view_subscribe_id)))
+                self.play(msg.data)
+            elif msg.type == msgtp.VIEW_OPEN:
+                self.open(msg.data)
 
     def read_video(self):
-        if self.view_pause:
-            return
         try:
             msg = self.q_frame.get(block=False)
-            init_id, shm_name, mat_shape, mat_dtype = msg.data
 
-            if ((len(self.buffer) == 0 and init_id == self.view_frame_id) or 
-                (len(self.buffer) > 0 and (self.buffer[-1].last_frame_id() + 1 == init_id))):
-                shm = shared_memory.SharedMemory(name=shm_name)
-                frames = np.ndarray(mat_shape, dtype=mat_dtype, buffer=shm.buf)
-                self.buffer.append(BufferItem(init_id, frames, shm))
-            else:
-                self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name))
+            if msg.type == msgtp.VIDEO_FRAMES:
+                init_id, shm_name, mat_shape, mat_dtype = msg.data
+                if ((len(self.buffer) == 0 and init_id == self.view_frame_id) or 
+                    (len(self.buffer) > 0 and (self.buffer[-1].last_frame_id() + 1 == init_id))):
+                    shm = shared_memory.SharedMemory(name=shm_name)
+                    frames = np.ndarray(mat_shape, dtype=mat_dtype, buffer=shm.buf)
+                    self.buffer.append(BufferItem(init_id, frames, shm))
+                else:
+                    self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name))
+
+            elif msg.type == msgtp.VIDEO_OPEN_ACK:
+                self.video_name = msg.data
+                self.play(0)
+
         except queue.Empty:
             pass
 
     def update_view(self):
+        if self.view_pause:
+            return
         cur_t = time.time()
         if self.buffer and cur_t - self.last_update_t >= 1.0 / 25:
             item: BufferItem = self.buffer[0]
@@ -153,6 +173,7 @@ class AnnWindow(QMainWindow):
     @Slot()
     def open_video(self):
         img_path, _ = QFileDialog.getOpenFileName()
+        self.q_view.put(Msg(msgtp.VIEW_OPEN, img_path), block=False)
 
     @Slot(QImage)
     def set_image(self, image):

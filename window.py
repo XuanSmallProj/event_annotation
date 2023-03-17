@@ -23,6 +23,7 @@ from utils import annotations_to_str, TimeStamp, VideoMetaData
 from enum import auto, IntEnum
 from typing import *
 import os
+from clip import query_clip
 
 
 class BufferItem:
@@ -169,14 +170,17 @@ class AnnManager:
     def __init__(self) -> None:
         self.video_meta = VideoMetaData("", 0, 1)
         self.annotations = []
+        self.clip_annotations = []
         self.state = self.State.IDLE
         self.new_start_frame_id = 0
-
         self.view_frame_id = 0
 
     def open(self, meta_data, annotations):
         self.video_meta = meta_data
         self.annotations = annotations
+        self.clip_annotations = query_clip(self.video_meta.name)
+        self.new_start_frame_id = 0
+        self.view_frame_id = 0
 
     def create_annotation(self, start_id, end_id):
         start_ts = self.video_meta.frame_to_time(start_id)

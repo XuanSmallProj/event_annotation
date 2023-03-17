@@ -3,8 +3,10 @@ from multiprocessing import Queue, Pipe
 from window import AnnWindow
 from video import Video
 from PySide6.QtWidgets import QApplication
+from clip import init_clip
 
 def fn_proc_window(q_frame: Queue, q_cmd: Queue):
+    init_clip("match_matched_clips.csv")
     app = QApplication()
     window = AnnWindow(q_frame, q_cmd)
     window.show()

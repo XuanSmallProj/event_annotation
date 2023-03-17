@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QSlider,
     QFileDialog,
-    QComboBox
+    QComboBox,
+    QTabWidget
 )
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal, Slot, QThread, Qt
@@ -260,6 +261,7 @@ class AnnWindow(QMainWindow):
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
+        self.clip_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
@@ -306,26 +308,49 @@ class AnnWindow(QMainWindow):
         toolbar.addAction(button_action)
 
     def _create_control_panel(self):
-        vlayout = QVBoxLayout()
+        control_vlayout = QVBoxLayout()
+        control_tab = QTabWidget(self)
+
+        ann_page = QWidget(control_tab)
+        ann_vlayout = QVBoxLayout()
         button_layout = QHBoxLayout()
         self.remove_ann_btn = QPushButton("remove", self)
         self.save_ann_btn = QPushButton("save", self)
         button_layout.addWidget(self.remove_ann_btn)
         button_layout.addWidget(self.save_ann_btn)
-        vlayout.addLayout(button_layout)
+        ann_vlayout.addLayout(button_layout)
 
         self.annotation_table = QTableWidget(self)
-        vlayout.addWidget(self.annotation_table)
+        ann_vlayout.addWidget(self.annotation_table)
         self.annotation_table.setColumnCount(2)
         self.annotation_table.setHorizontalHeaderLabels(["start", "end"])
         self.annotation_table.setEditTriggers(
             QtWidgets.QAbstractItemView.NoEditTriggers
         )
-        return vlayout
+        ann_page.setLayout(ann_vlayout)
+        control_tab.addTab(ann_page, "Annotations")
 
-    def view_update_by_manager(self, ann_update=False, button_update=False):
+        clip_page = QWidget(control_tab)
+        clip_vlayout = QVBoxLayout()
+        self.clip_table = QTableWidget(self)
+        clip_vlayout.addWidget(self.clip_table)
+        self.clip_table.setColumnCount(2)
+        self.clip_table.setHorizontalHeaderLabels(["start", "end"])
+        self.clip_table.setEditTriggers(
+            QtWidgets.QAbstractItemView.NoEditTriggers
+        )
+        clip_page.setLayout(clip_vlayout)
+        control_tab.addTab(clip_page, "Clips")
+
+        control_vlayout.addWidget(control_tab)
+        return control_vlayout
+
+    def view_update_by_manager(self, ann_update=False, clip_update=False, button_update=False):
         if ann_update:
             self.update_ann_table(self.manager.annotations)
+        
+        if clip_update:
+            self.update_clip_table(self.manager.clip_annotations)
 
         if button_update:
             if self.manager.state == self.manager.State.IDLE:
@@ -335,6 +360,9 @@ class AnnWindow(QMainWindow):
 
             if self.manager.is_inside_clip(self.manager.get_ts()):
                 self.new_ann_btn.setStyleSheet("background-color: rgb(200, 0, 0)")
+                self.new_ann_btn.setEnabled(False)
+            else:
+                self.new_ann_btn.setEnabled(True)
 
     def pause(self):
         self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)
@@ -376,21 +404,27 @@ class AnnWindow(QMainWindow):
     def slider_change_config(self, total):
         self.slider.setMaximum(total)
 
-    def update_ann_table(self, annotations):
-        while self.annotation_table.rowCount():
-            self.annotation_table.removeRow(0)
+    def _update_table(self, table, annotations):
+        while table.rowCount():
+            table.removeRow(0)
         for i, ann in enumerate(annotations):
             item0 = QTableWidgetItem(str(ann[0]))
             item1 = QTableWidgetItem(str(ann[1]))
-            self.annotation_table.insertRow(i)
-            self.annotation_table.setItem(i, 0, item0)
-            self.annotation_table.setItem(i, 1, item1)
+            table.insertRow(i)
+            table.setItem(i, 0, item0)
+            table.setItem(i, 1, item1)
+
+    def update_ann_table(self, annotations):
+        self._update_table(self.annotation_table, annotations)
+    
+    def update_clip_table(self, annotations):
+        self._update_table(self.clip_table, annotations)
 
     @Slot(VideoMetaData, list)
     def on_open_video(self, meta_data: VideoMetaData, annotations):
         self.manager.open(meta_data, annotations)
         self.slider_change_config(meta_data.total_frame)
-        self.view_update_by_manager(ann_update=True, button_update=True)
+        self.view_update_by_manager(ann_update=True, clip_update=True, button_update=True)
 
     @Slot(QTableWidgetItem)
     def on_double_click_table_item(self, item: QTableWidgetItem):

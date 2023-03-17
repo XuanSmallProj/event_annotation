@@ -231,7 +231,7 @@ class AnnWindow(QMainWindow):
         vlayout.addWidget(self.slider)
 
         button_layout = QHBoxLayout()
-        self.new_ann_btn = QPushButton("Start", self)
+        self.new_ann_btn = QPushButton("Mark", self)
         button_layout.addWidget(self.new_ann_btn)
         vlayout.addLayout(button_layout)
         return vlayout
@@ -326,9 +326,9 @@ class AnnWindow(QMainWindow):
         if self.manager.state == self.manager.State.IDLE:
             # new annotation created
             self.update_ann_table(self.manager.annotations)
-            self.new_ann_btn.setText("Start")
+            self.new_ann_btn.setStyleSheet("background-color: palette(window)")
         elif self.manager.state == self.manager.State.NEW:
-            self.new_ann_btn.setText("End")
+            self.new_ann_btn.setStyleSheet("background-color: rgb(3, 252, 107)")
 
     @Slot()
     def on_remove_ann_btn_clicked(self):

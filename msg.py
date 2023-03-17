@@ -15,7 +15,6 @@ class MsgType(IntEnum):
     VIEW_PLAY = auto()
     VIEW_TOGGLE = auto()
     VIEW_SEEK = auto()
-    VIEW_SEEK_BY_TIME = auto()
 
 class Msg:
     def __init__(self, type: MsgType, data=None) -> None:

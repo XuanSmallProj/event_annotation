@@ -53,15 +53,10 @@ class Thread(QThread):
 
         self.last_update_t = 0
 
-        self.video_meta: VideoMetaData = VideoMetaData("", 0, 1)
-        self.annotations: List[Tuple[TimeStamp, TimeStamp]] = []
-
     def is_paused(self):
         return self.view_last_to_show < self.view_frame_id
 
     def open(self, path):
-        if get_video_name(path) == self.video_meta.name:
-            return
         self.pause()
         self.q_cmd.put(Msg(msgtp.OPEN, path), block=False)
 
@@ -102,9 +97,6 @@ class Thread(QThread):
                     self.pause()
             elif msg.type == msgtp.VIEW_SEEK:
                 self.seek(msg.data)
-            elif msg.type == msgtp.VIEW_SEEK_BY_TIME:
-                frame_id = self.video_meta.time_to_frame(msg.data)
-                self.seek(frame_id)
 
     def read_video(self):
         try:
@@ -123,8 +115,8 @@ class Thread(QThread):
                     self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name))
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
-                self.video_meta, self.annotations = msg.data
-                self.sig_open_video.emit(self.video_meta, self.annotations)
+                video_meta, annotations = msg.data
+                self.sig_open_video.emit(video_meta, annotations)
                 self.view_frame_id = 0
                 self.view_last_to_show = 0
                 self.seek(0)
@@ -160,11 +152,22 @@ class Thread(QThread):
             time.sleep(0.001)
 
 
-class AnnWindow(QMainWindow):
-    updateFrame = Signal(QImage)
+class AnnManager:
+    def __init__(self) -> None:
+        self.video_meta = VideoMetaData("", 0, 1)
+        self.annotations = []
 
+    def open(self, meta_data, annotations):
+        self.video_meta = meta_data
+        self.annotations = annotations
+
+    def new_annotation(self, frame_id):
+        pass
+
+class AnnWindow(QMainWindow):
     def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
         super().__init__()
+        self.manager: AnnManager = AnnManager()
         self.setWindowTitle("Annotator")
 
         self._create_tool_bar()
@@ -204,7 +207,7 @@ class AnnWindow(QMainWindow):
         self.addToolBar(toolbar)
         button_action = QAction("Open", self)
         button_action.setStatusTip("Open Video")
-        button_action.triggered.connect(self.open_video)
+        button_action.triggered.connect(self.view_open_video)
         toolbar.addAction(button_action)
 
     def _create_control_panel(self):
@@ -229,10 +232,11 @@ class AnnWindow(QMainWindow):
         self.q_view.put(Msg(msgtp.VIEW_SEEK, seek_id), block=False)
     
     def seek_by_time(self, ts):
-        self.q_view.put(Msg(msgtp.VIEW_SEEK_BY_TIME, ts), block=False)
+        frame_id = self.manager.video_meta.time_to_frame(ts)
+        self.seek(frame_id)
 
     @Slot()
-    def open_video(self):
+    def view_open_video(self):
         img_path, _ = QFileDialog.getOpenFileName()
         self.q_view.put(Msg(msgtp.VIEW_OPEN, img_path), block=False)
 
@@ -266,6 +270,7 @@ class AnnWindow(QMainWindow):
     
     @Slot(VideoMetaData, list)
     def on_open_video(self, meta_data: VideoMetaData, annotations):
+        self.manager.open(meta_data, annotations)
         self.slider_change_config(meta_data.total_frame)
         self.update_ann_table(annotations)
     

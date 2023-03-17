@@ -212,10 +212,20 @@ class AnnManager:
     def valid(self):
         return len(self.video_meta.name) > 0
 
+    def _t_inside(self, t: TimeStamp, s0: TimeStamp, s1: TimeStamp):
+        return t.ge(s0) and t.le(s1)
+
     def is_inside_clip(self, t: TimeStamp):
         for clip in self.clip_annotations:
-            if t.ge(clip[0]) and t.le(clip[1]):
+            if self._t_inside(t, clip[0], clip[1]):
                 return True
+        return False
+    
+    def is_ann_overlap(self, start: TimeStamp, end: TimeStamp):
+        for ann in self.annotations:
+            if self._t_inside(start, ann[0], ann[1]) or self._t_inside(end, ann[0], ann[1]):
+                return True
+            return not (end.lt(ann[0]) or start.gt(ann[1]))
         return False
     
     def get_ann_start_ts(self):
@@ -268,6 +278,7 @@ class AnnManager:
 
 class AnnWindow(QMainWindow):
     ANN_LEN_MIN = 2 * 60  # at least 2min
+    ANN_LEN_MAX = 3 * 60 # at most 3min
     def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
         super().__init__()
         self.manager: AnnManager = AnnManager()
@@ -420,6 +431,10 @@ class AnnWindow(QMainWindow):
                 now_ts = self.manager.get_ts()
                 if now_ts.to_second() - start_ts.to_second() < self.ANN_LEN_MIN:
                     new_enable = False
+                if now_ts.to_second() - start_ts.to_second() > self.ANN_LEN_MAX:
+                    new_enable = False
+                if self.manager.is_ann_overlap(start_ts, now_ts):
+                    new_enable = False
 
             if self.manager.is_inside_clip(self.manager.get_ts()):
                 new_enable = False
@@ -500,6 +515,7 @@ class AnnWindow(QMainWindow):
         next_frame -= math.ceil(self.manager.video_meta.fps * second)
         next_frame = max(next_frame, 0)
         self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, next_frame))
+        self.view_update_by_manager(button_update=True)
 
     def navigate_forward(self, second):
         if self.manager.video_meta.total_frame < 1:
@@ -508,6 +524,7 @@ class AnnWindow(QMainWindow):
         next_frame += math.ceil(self.manager.video_meta.fps * second)
         next_frame = min(next_frame, int(self.manager.video_meta.total_frame) - 1)
         self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, next_frame))
+        self.view_update_by_manager(button_update=True)
 
     @Slot(VideoMetaData, list)
     def on_open_video(self, meta_data: VideoMetaData, annotations):

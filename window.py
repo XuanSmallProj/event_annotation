@@ -322,7 +322,7 @@ class AnnWindow(QMainWindow):
         playrate_label.setFixedWidth(60)
         self.playrate_combobox = QComboBox(self)
         self.playrate_combobox.setEditable(False)
-        self.playrate_combobox.addItems(["1", "2", "4", "8", "16"])
+        self.playrate_combobox.addItems(["1", "2", "4", "8", "16", "32", "64"])
         self.playrate_combobox.setFixedWidth(60)
         combobox_layout.addWidget(playrate_label)
         combobox_layout.addWidget(self.playrate_combobox)

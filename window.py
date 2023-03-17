@@ -55,6 +55,8 @@ class Thread(QThread):
 
         self.last_update_t = 0
 
+        self.stopped = False
+
     def is_paused(self):
         return self.view_last_to_show < self.view_frame_id
 
@@ -114,7 +116,7 @@ class Thread(QThread):
                     frames = np.ndarray(mat_shape, dtype=mat_dtype, buffer=shm.buf)
                     self.buffer.append(BufferItem(init_id, frames, shm))
                 else:
-                    self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name))
+                    self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name), block=False)
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
                 video_meta, annotations = msg.data
@@ -146,12 +148,13 @@ class Thread(QThread):
             self.view_frame_id += 1
             self.last_update_t = cur_t
 
-    def terminate(self):
+    def stop(self) -> None:
+        # GIL to protect it
+        self.stopped = True
         self.q_cmd.put(Msg(msgtp.CLOSE, None), block=False)
-        super().terminate()
 
     def run(self):
-        while True:
+        while not self.stopped:
             self.read_view()
             self.read_video()
             self.update_view()
@@ -217,6 +220,7 @@ class AnnWindow(QMainWindow):
         self.th = Thread(self, q_frame, q_cmd, self.q_view)
 
         self.setup_connection()
+        self.th.start(self.th.Priority.NormalPriority)
 
     def setup_connection(self):
         self.slider.sliderReleased.connect(self.slider_released)
@@ -351,7 +355,9 @@ class AnnWindow(QMainWindow):
         self.manager.save_annotation()
 
     def closeEvent(self, event) -> None:
-        self.th.terminate()
+        self.th.stop()
+        self.th.quit()
+        self.th.wait()
         return super().closeEvent(event)
 
     def keyPressEvent(self, event) -> None:

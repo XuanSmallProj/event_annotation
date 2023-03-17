@@ -19,9 +19,10 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import get_video_name, TimeStamp, VideoMetaData
+from utils import annotations_to_str, TimeStamp, VideoMetaData
 from enum import auto, IntEnum
 from typing import *
+import os
 
 
 class BufferItem:
@@ -190,6 +191,11 @@ class AnnManager:
             self.create_annotation(self.new_start_frame_id, frame_id)
             self.state = self.State.IDLE
 
+    def save_annotation(self):
+        path = os.path.join("dataset", "annotate", self.video_meta.name + ".txt")
+        content = annotations_to_str(self.annotations)
+        with open(path, "w") as f:
+            f.write(content)
 
 class AnnWindow(QMainWindow):
     def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
@@ -218,6 +224,7 @@ class AnnWindow(QMainWindow):
         self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
+        self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
         self.th.sig_update_frame.connect(self.set_frame)
         self.th.sig_open_video.connect(self.on_open_video)
 
@@ -248,7 +255,9 @@ class AnnWindow(QMainWindow):
         vlayout = QVBoxLayout()
         button_layout = QHBoxLayout()
         self.remove_ann_btn = QPushButton("remove", self)
+        self.save_ann_btn = QPushButton("save", self)
         button_layout.addWidget(self.remove_ann_btn)
+        button_layout.addWidget(self.save_ann_btn)
         vlayout.addLayout(button_layout)
 
         self.annotation_table = QTableWidget(self)
@@ -336,6 +345,10 @@ class AnnWindow(QMainWindow):
         if c_row >= 0:
             self.manager.remove_annotation(c_row)
             self.update_ann_table(self.manager.annotations)
+    
+    @Slot()
+    def on_save_ann_btn_clicked(self):
+        self.manager.save_annotation()
 
     def closeEvent(self, event) -> None:
         self.th.terminate()

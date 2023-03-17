@@ -428,11 +428,11 @@ class AnnWindow(QMainWindow):
         if button_update:
             new_enable = True
             cancel_enable = True
+            now_ts = self.manager.get_ts()
             if self.manager.state == self.manager.State.IDLE:
                 cancel_enable = False
             elif self.manager.state == self.manager.State.NEW:
                 start_ts = self.manager.get_ann_start_ts()
-                now_ts = self.manager.get_ts()
                 if now_ts.to_second() - start_ts.to_second() < self.ANN_LEN_MIN:
                     new_enable = False
                 if now_ts.to_second() - start_ts.to_second() > self.ANN_LEN_MAX:
@@ -440,6 +440,8 @@ class AnnWindow(QMainWindow):
                 if self.manager.is_ann_overlap(start_ts, now_ts):
                     new_enable = False
 
+            if self.manager.is_ann_overlap(now_ts, now_ts):
+                new_enable = False
             if self.manager.is_inside_clip(self.manager.get_ts()):
                 new_enable = False
 

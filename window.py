@@ -97,7 +97,6 @@ class Thread(QThread):
     def playrate(self, rate):
         self.view_playrate = rate
         self.q_cmd.put(Msg(msgtp.PLAYRATE, rate), block=False)
-        self.play()
 
     def change_view_image(self, frame_id, frame):
         h, w, ch = frame.shape
@@ -212,6 +211,7 @@ class AnnManager:
         self.is_dirty = False
 
         self.navigate_repeat = 0
+        self.playrate = 1
 
     def valid(self):
         return len(self.video_meta.name) > 0
@@ -249,6 +249,7 @@ class AnnManager:
         self.new_start_frame_id = 0
         self.view_frame_id = 0
         self.is_dirty = False
+        self.playrate = 1
 
     def create_annotation(self, start_id, end_id):
         self.is_dirty = True
@@ -502,6 +503,10 @@ class AnnWindow(QMainWindow):
             self.new_ann_btn.setEnabled(new_enable)
             self.cancel_ann_btn.setEnabled(cancel_enable)
 
+        # set focus to centralwidget(otherwise the keyboard won't work)
+        # TODO: figure out why
+        self.centralWidget().setFocus()
+
     def pause(self):
         self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)
 
@@ -521,6 +526,8 @@ class AnnWindow(QMainWindow):
     @Slot()
     def view_open_video(self):
         img_path, _ = QFileDialog.getOpenFileName()
+        if not img_path:
+            return
         if self.show_save_dialog() < 0:
             return
         self.q_view.put(Msg(msgtp.VIEW_OPEN, img_path), block=False)
@@ -589,6 +596,7 @@ class AnnWindow(QMainWindow):
     def on_open_video(self, meta_data: VideoMetaData, annotations):
         self.manager.open(meta_data, annotations)
         self.slider_change_config(meta_data.total_frame)
+        self.playrate_combobox.setCurrentText("1")
         self.view_update_by_manager(
             ann_update=True, clip_update=True, button_update=True
         )
@@ -632,6 +640,7 @@ class AnnWindow(QMainWindow):
     @Slot()
     def on_playrate_changed(self, rate):
         rate = int(rate)
+        self.manager.playrate = rate
         self.q_view.put(Msg(msgtp.VIEW_PLAYRATE, rate), block=False)
 
     def closeEvent(self, event) -> None:

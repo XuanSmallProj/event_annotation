@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
     QSlider,
     QFileDialog,
     QComboBox,
-    QTabWidget
+    QTabWidget,
+    QMessageBox
 )
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal, Slot, QThread, Qt
@@ -195,6 +196,11 @@ class AnnManager:
         # id of the current frame shown on the screen
         self.view_frame_id = 0
 
+        self.is_dirty = False
+
+    def valid(self):
+        return len(self.video_meta.name) > 0
+
     def is_inside_clip(self, t: TimeStamp):
         for clip in self.clip_annotations:
             if t.ge(clip[0]) and t.le(clip[1]):
@@ -214,13 +220,16 @@ class AnnManager:
         self.clip_annotations = sort_annotations(self.clip_annotations)
         self.new_start_frame_id = 0
         self.view_frame_id = 0
+        self.is_dirty = False
 
     def create_annotation(self, start_id, end_id):
+        self.is_dirty = True
         start_ts = self.video_meta.frame_to_time(start_id)
         end_ts = self.video_meta.frame_to_time(end_id)
         self.annotations.append((start_ts, end_ts))
 
     def remove_annotation(self, index):
+        self.is_dirty = True
         del self.annotations[index]
     
     def sort_annotations(self):
@@ -244,6 +253,7 @@ class AnnManager:
         content = annotations_to_str(sorted_annotations)
         with open(path, "w") as f:
             f.write(content)
+        self.is_dirty = False
 
 class AnnWindow(QMainWindow):
     ANN_LEN_MIN = 2 * 60  # at least 2min
@@ -362,6 +372,21 @@ class AnnWindow(QMainWindow):
         control_vlayout.addWidget(control_tab)
         return control_vlayout
 
+    def _show_save_dialog(self):
+        dialog = QMessageBox(self)
+        dialog.setText("Annotation not saved, save it now?")
+        dialog.setStandardButtons(QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Discard)
+        return dialog.exec()
+
+    def show_save_dialog(self):
+        if self.manager.valid() and self.manager.is_dirty:
+            ret = self._show_save_dialog()
+            if ret == QMessageBox.StandardButton.Save:
+                self.manager.save_annotation()
+            elif ret == QMessageBox.StandardButton.Cancel:
+                return -1
+        return 0
+
     def view_update_by_manager(self, ann_update=False, clip_update=False, button_update=False):
         if ann_update:
             self.update_ann_table(self.manager.annotations)
@@ -413,6 +438,8 @@ class AnnWindow(QMainWindow):
     @Slot()
     def view_open_video(self):
         img_path, _ = QFileDialog.getOpenFileName()
+        if self.show_save_dialog() < 0:
+            return
         self.q_view.put(Msg(msgtp.VIEW_OPEN, img_path), block=False)
 
     @Slot(QImage)
@@ -493,6 +520,9 @@ class AnnWindow(QMainWindow):
         self.q_view.put(Msg(msgtp.VIEW_PLAYRATE, rate), block=False)
 
     def closeEvent(self, event) -> None:
+        if self.show_save_dialog() < 0:
+            event.ignore()
+            return
         self.th.stop()
         self.th.quit()
         self.th.wait()

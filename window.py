@@ -219,10 +219,12 @@ class AnnManager:
         start_ts = self.video_meta.frame_to_time(start_id)
         end_ts = self.video_meta.frame_to_time(end_id)
         self.annotations.append((start_ts, end_ts))
-        self.annotations = sort_annotations(self.annotations)
 
     def remove_annotation(self, index):
         del self.annotations[index]
+    
+    def sort_annotations(self):
+        self.annotations = sort_annotations(self.annotations)
 
     def toggle_new_annotation(self, frame_id):
         if self.state == self.State.IDLE:
@@ -238,7 +240,8 @@ class AnnManager:
 
     def save_annotation(self):
         path = os.path.join("dataset", "annotate", self.video_meta.name + ".txt")
-        content = annotations_to_str(self.annotations)
+        sorted_annotations = sort_annotations(self.annotations)
+        content = annotations_to_str(sorted_annotations)
         with open(path, "w") as f:
             f.write(content)
 
@@ -272,6 +275,7 @@ class AnnWindow(QMainWindow):
         self.clip_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
         self.cancel_ann_btn.clicked.connect(self.on_cancel_btn_clicked)
+        self.sort_ann_btn.clicked.connect(self.on_sort_ann_btn_clicked)
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
         self.playrate_combobox.currentTextChanged.connect(self.on_playrate_changed)
@@ -325,8 +329,10 @@ class AnnWindow(QMainWindow):
         ann_page = QWidget(control_tab)
         ann_vlayout = QVBoxLayout()
         button_layout = QHBoxLayout()
+        self.sort_ann_btn = QPushButton("sort", self)
         self.remove_ann_btn = QPushButton("delete", self)
         self.save_ann_btn = QPushButton("save", self)
+        button_layout.addWidget(self.sort_ann_btn)
         button_layout.addWidget(self.remove_ann_btn)
         button_layout.addWidget(self.save_ann_btn)
         ann_vlayout.addLayout(button_layout)
@@ -464,6 +470,11 @@ class AnnWindow(QMainWindow):
     def on_cancel_btn_clicked(self):
         self.manager.cancel_new_annotation()
         self.view_update_by_manager(button_update=True)
+
+    @Slot()
+    def on_sort_ann_btn_clicked(self):
+        self.manager.sort_annotations()
+        self.view_update_by_manager(ann_update=True)
 
     @Slot()
     def on_remove_ann_btn_clicked(self):

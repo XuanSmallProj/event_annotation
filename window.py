@@ -201,6 +201,9 @@ class AnnManager:
                 return True
         return False
     
+    def get_ann_start_ts(self):
+        return self.video_meta.frame_to_time(self.new_start_frame_id)
+
     def get_ts(self):
         return self.video_meta.frame_to_time(self.view_frame_id)
 
@@ -240,6 +243,7 @@ class AnnManager:
             f.write(content)
 
 class AnnWindow(QMainWindow):
+    ANN_LEN_MIN = 2 * 60  # at least 2min
     def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
         super().__init__()
         self.manager: AnnManager = AnnManager()
@@ -360,18 +364,29 @@ class AnnWindow(QMainWindow):
             self.update_clip_table(self.manager.clip_annotations)
 
         if button_update:
+            new_enable = True
+            cancel_enable = True
             if self.manager.state == self.manager.State.IDLE:
-                self.new_ann_btn.setStyleSheet("background-color: palette(window)")
-                self.cancel_ann_btn.setEnabled(False)
+                cancel_enable = False
             elif self.manager.state == self.manager.State.NEW:
-                self.new_ann_btn.setStyleSheet("background-color: rgb(3, 252, 107)")
-                self.cancel_ann_btn.setEnabled(True)
+                start_ts = self.manager.get_ann_start_ts()
+                now_ts = self.manager.get_ts()
+                if now_ts.to_second() - start_ts.to_second() < self.ANN_LEN_MIN:
+                    new_enable = False
 
             if self.manager.is_inside_clip(self.manager.get_ts()):
+                new_enable = False
+
+            if not new_enable:
                 self.new_ann_btn.setStyleSheet("background-color: rgb(200, 0, 0)")
-                self.new_ann_btn.setEnabled(False)
             else:
-                self.new_ann_btn.setEnabled(True)
+                if self.manager.state == self.manager.State.IDLE:
+                    self.new_ann_btn.setStyleSheet("background-color: palette(window)")
+                elif self.manager.state == self.manager.State.NEW:
+                    self.new_ann_btn.setStyleSheet("background-color: rgb(3, 252, 107)")
+
+            self.new_ann_btn.setEnabled(new_enable)
+            self.cancel_ann_btn.setEnabled(cancel_enable)
 
     def pause(self):
         self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)

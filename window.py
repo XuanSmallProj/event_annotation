@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QComboBox,
     QTabWidget,
-    QMessageBox
+    QMessageBox,
 )
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal, Slot, QThread, Qt, QObject, QEvent
@@ -51,6 +51,7 @@ class Thread(QThread):
     sig_open_video = Signal(VideoMetaData, list)
 
     BASE_EXTENT_PACE = 6
+
     def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue):
         super().__init__(parent=parent)
         self.q_frame = q_frame
@@ -81,7 +82,9 @@ class Thread(QThread):
         self.paused = True
 
     def play(self):
-        self.view_last_to_show = self.view_frame_id + self.BASE_EXTENT_PACE * self.view_playrate
+        self.view_last_to_show = (
+            self.view_frame_id + self.BASE_EXTENT_PACE * self.view_playrate
+        )
         self.paused = False
         self.q_cmd.put(Msg(msgtp.EXTENT, self.view_last_to_show), block=False)
 
@@ -90,7 +93,7 @@ class Thread(QThread):
         self.view_last_to_show = seek_id
         self.buffer = []
         self.q_cmd.put(Msg(msgtp.SEEK, seek_id), block=False)
-    
+
     def playrate(self, rate):
         self.view_playrate = rate
         self.q_cmd.put(Msg(msgtp.PLAYRATE, rate), block=False)
@@ -200,6 +203,7 @@ class AnnManager:
         self.video_meta = VideoMetaData("", 0, 1)
         self.annotations = []
         self.clip_annotations = []
+        self.breakpoints = []
         self.state = self.State.IDLE
         self.new_start_frame_id = 0
         # id of the current frame shown on the screen
@@ -220,14 +224,16 @@ class AnnManager:
             if self._t_inside(t, clip[0], clip[1]):
                 return True
         return False
-    
+
     def is_ann_overlap(self, start: TimeStamp, end: TimeStamp):
         for ann in self.annotations:
-            if self._t_inside(start, ann[0], ann[1]) or self._t_inside(end, ann[0], ann[1]):
+            if self._t_inside(start, ann[0], ann[1]) or self._t_inside(
+                end, ann[0], ann[1]
+            ):
                 return True
             return not (end.lt(ann[0]) or start.gt(ann[1]))
         return False
-    
+
     def get_ann_start_ts(self):
         return self.video_meta.frame_to_time(self.new_start_frame_id)
 
@@ -239,6 +245,7 @@ class AnnManager:
         self.annotations = sort_annotations(annotations)
         self.clip_annotations = query_clip(self.video_meta.name)
         self.clip_annotations = sort_annotations(self.clip_annotations)
+        self.breakpoints = []
         self.new_start_frame_id = 0
         self.view_frame_id = 0
         self.is_dirty = False
@@ -255,8 +262,10 @@ class AnnManager:
             del self.annotations[indexes]
         else:
             indexes = set(indexes)
-            self.annotations = [ann for i, ann in enumerate(self.annotations) if i not in indexes]
-    
+            self.annotations = [
+                ann for i, ann in enumerate(self.annotations) if i not in indexes
+            ]
+
     def sort_annotations(self):
         self.annotations = sort_annotations(self.annotations)
 
@@ -267,7 +276,7 @@ class AnnManager:
         elif self.state == self.State.NEW:
             self.create_annotation(self.new_start_frame_id, frame_id)
             self.state = self.State.IDLE
-        
+
     def cancel_new_annotation(self):
         if self.state == self.State.NEW:
             self.state = self.State.IDLE
@@ -280,9 +289,14 @@ class AnnManager:
             f.write(content)
         self.is_dirty = False
 
+    def add_breakpoint(self, frame_id):
+        self.breakpoints.append(self.video_meta.frame_to_time(frame_id))
+
+
 class AnnWindow(QMainWindow):
     ANN_LEN_MIN = 2 * 60  # at least 2min
-    ANN_LEN_MAX = 3 * 60 # at most 3min
+    ANN_LEN_MAX = 3 * 60  # at most 3min
+
     def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
         super().__init__()
         self.manager: AnnManager = AnnManager()
@@ -310,8 +324,12 @@ class AnnWindow(QMainWindow):
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.clip_table.itemDoubleClicked.connect(self.on_double_click_table_item)
+        self.breakpoint_table.itemDoubleClicked.connect(self.on_double_click_table_item)
+
         self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
         self.cancel_ann_btn.clicked.connect(self.on_cancel_btn_clicked)
+        self.breakpoint_btn.clicked.connect(self.on_breakpoint_btn_clicked)
+
         self.sort_ann_btn.clicked.connect(self.on_sort_ann_btn_clicked)
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
@@ -333,7 +351,9 @@ class AnnWindow(QMainWindow):
         combobox_layout = QHBoxLayout()
         combobox_layout.setSpacing(0)
         playrate_label = QLabel("Play rate:", self)
-        playrate_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        playrate_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         playrate_label.setFixedWidth(60)
         self.playrate_combobox = QComboBox(self)
         self.playrate_combobox.setEditable(False)
@@ -341,13 +361,15 @@ class AnnWindow(QMainWindow):
         self.playrate_combobox.setFixedWidth(60)
         combobox_layout.addWidget(playrate_label)
         combobox_layout.addWidget(self.playrate_combobox)
-        
+
         button_layout.addLayout(combobox_layout)
 
         self.new_ann_btn = QPushButton("Mark", self)
         self.cancel_ann_btn = QPushButton("Cancel", self)
+        self.breakpoint_btn = QPushButton("BreakPoint", self)
         button_layout.addWidget(self.new_ann_btn)
         button_layout.addWidget(self.cancel_ann_btn)
+        button_layout.addWidget(self.breakpoint_btn)
         vlayout.addLayout(button_layout)
         return vlayout
 
@@ -390,11 +412,21 @@ class AnnWindow(QMainWindow):
         clip_vlayout.addWidget(self.clip_table)
         self.clip_table.setColumnCount(2)
         self.clip_table.setHorizontalHeaderLabels(["start", "end"])
-        self.clip_table.setEditTriggers(
-            QtWidgets.QAbstractItemView.NoEditTriggers
-        )
+        self.clip_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         clip_page.setLayout(clip_vlayout)
         control_tab.addTab(clip_page, "Clips")
+
+        breakpoint_page = QWidget(control_tab)
+        breakpoint_layout = QVBoxLayout()
+        self.breakpoint_table = QTableWidget(self)
+        breakpoint_layout.addWidget(self.breakpoint_table)
+        self.breakpoint_table.setColumnCount(1)
+        self.breakpoint_table.setHorizontalHeaderLabels(["time"])
+        self.breakpoint_table.setEditTriggers(
+            QtWidgets.QAbstractItemView.NoEditTriggers
+        )
+        breakpoint_page.setLayout(breakpoint_layout)
+        control_tab.addTab(breakpoint_page, "Breakpoint")
 
         control_vlayout.addWidget(control_tab)
         return control_vlayout
@@ -402,7 +434,11 @@ class AnnWindow(QMainWindow):
     def _show_save_dialog(self):
         dialog = QMessageBox(self)
         dialog.setText("Annotation not saved, save it now?")
-        dialog.setStandardButtons(QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Discard)
+        dialog.setStandardButtons(
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Cancel
+            | QMessageBox.StandardButton.Discard
+        )
         return dialog.exec()
 
     def show_save_dialog(self):
@@ -414,16 +450,26 @@ class AnnWindow(QMainWindow):
                 return -1
         return 0
 
-    def view_update_by_manager(self, status_update=True, ann_update=False, clip_update=False, button_update=False):
+    def view_update_by_manager(
+        self,
+        status_update=True,
+        ann_update=False,
+        clip_update=False,
+        button_update=False,
+        breakpoint_update=False,
+    ):
         if status_update:
             msg = f"{self.manager.view_frame_id} / {self.manager.get_ts()}"
             self.status_bar.showMessage(msg)
 
         if ann_update:
             self.update_ann_table(self.manager.annotations)
-        
+
         if clip_update:
             self.update_clip_table(self.manager.clip_annotations)
+
+        if breakpoint_update:
+            self.update_breakpoint_table(self.manager.breakpoints)
 
         if button_update:
             new_enable = True
@@ -502,18 +548,25 @@ class AnnWindow(QMainWindow):
         while table.rowCount():
             table.removeRow(0)
         for i, ann in enumerate(annotations):
-            item0 = QTableWidgetItem(str(ann[0]))
-            item1 = QTableWidgetItem(str(ann[1]))
+            items = []
+            if isinstance(ann, (list, tuple)):
+                for sub_ann in ann:
+                    items.append(QTableWidgetItem(str(sub_ann)))
+            else:
+                items = [QTableWidgetItem(str(ann))]
             table.insertRow(i)
-            table.setItem(i, 0, item0)
-            table.setItem(i, 1, item1)
+            for j, item in enumerate(items):
+                table.setItem(i, j, item)
 
     def update_ann_table(self, annotations):
         self._update_table(self.annotation_table, annotations)
-    
+
     def update_clip_table(self, annotations):
         self._update_table(self.clip_table, annotations)
     
+    def update_breakpoint_table(self, breakpoints):
+        self._update_table(self.breakpoint_table, breakpoints)
+
     def navigate_back(self, second):
         if self.manager.video_meta.total_frame < 1:
             return
@@ -536,7 +589,9 @@ class AnnWindow(QMainWindow):
     def on_open_video(self, meta_data: VideoMetaData, annotations):
         self.manager.open(meta_data, annotations)
         self.slider_change_config(meta_data.total_frame)
-        self.view_update_by_manager(ann_update=True, clip_update=True, button_update=True)
+        self.view_update_by_manager(
+            ann_update=True, clip_update=True, button_update=True
+        )
 
     @Slot(QTableWidgetItem)
     def on_double_click_table_item(self, item: QTableWidgetItem):
@@ -547,11 +602,16 @@ class AnnWindow(QMainWindow):
     def on_new_ann_btn_clicked(self):
         self.manager.toggle_new_annotation(self.manager.view_frame_id)
         self.view_update_by_manager(ann_update=True, button_update=True)
-    
+
     @Slot()
     def on_cancel_btn_clicked(self):
         self.manager.cancel_new_annotation()
         self.view_update_by_manager(button_update=True)
+
+    @Slot()
+    def on_breakpoint_btn_clicked(self):
+        self.manager.add_breakpoint(self.manager.view_frame_id)
+        self.view_update_by_manager(breakpoint_update=True)
 
     @Slot()
     def on_sort_ann_btn_clicked(self):
@@ -564,14 +624,7 @@ class AnnWindow(QMainWindow):
         selected = [i for i in selected if i >= 0]
         self.manager.remove_annotations(selected)
         self.view_update_by_manager(ann_update=True, button_update=True)
-        print(selected)
-        """
-        c_row = self.annotation_table.currentRow()
-        if c_row >= 0:
-            self.manager.remove_annotations(c_row)
-            self.view_update_by_manager(ann_update=True, button_update=True)
-            """
-    
+
     @Slot()
     def on_save_ann_btn_clicked(self):
         self.manager.save_annotation()
@@ -596,14 +649,14 @@ class AnnWindow(QMainWindow):
                 self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
             else:
                 self.manager.navigate_repeat = 0
-            self.navigate_back(0.5 * 2**(self.manager.navigate_repeat))
+            self.navigate_back(0.5 * 2 ** (self.manager.navigate_repeat))
 
         elif event.key() == Qt.Key.Key_D:
             if event.isAutoRepeat():
                 self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
             else:
                 self.manager.navigate_repeat = 0
-            self.navigate_forward(0.5 * 2**(self.manager.navigate_repeat))
+            self.navigate_forward(0.5 * 2 ** (self.manager.navigate_repeat))
 
         return super().keyPressEvent(event)
 

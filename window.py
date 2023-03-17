@@ -274,6 +274,7 @@ class AnnWindow(QMainWindow):
         self.setWindowTitle("Annotator")
 
         self._create_tool_bar()
+        self.status_bar = self.statusBar()
 
         top_hlayout = QHBoxLayout()
         top_hlayout.addLayout(self._create_image_viewer())
@@ -398,7 +399,11 @@ class AnnWindow(QMainWindow):
                 return -1
         return 0
 
-    def view_update_by_manager(self, ann_update=False, clip_update=False, button_update=False):
+    def view_update_by_manager(self, status_update=True, ann_update=False, clip_update=False, button_update=False):
+        if status_update:
+            msg = f"{self.manager.view_frame_id} / {self.manager.get_ts()}"
+            self.status_bar.showMessage(msg)
+
         if ann_update:
             self.update_ann_table(self.manager.annotations)
         

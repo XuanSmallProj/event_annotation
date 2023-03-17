@@ -53,7 +53,7 @@ class VideoMetaData:
         self.fps = fps
 
     def frame_to_time(self, frame_id):
-        t_cost = (frame_id + 1) / self.fps
+        t_cost = frame_id / self.fps
         t_cost = round(t_cost)
         hour = t_cost // 3600
         t_cost = t_cost - 3600 * hour

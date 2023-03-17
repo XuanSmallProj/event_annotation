@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QMessageBox
 )
 from PySide6 import QtWidgets
-from PySide6.QtCore import Signal, Slot, QThread, Qt
+from PySide6.QtCore import Signal, Slot, QThread, Qt, QObject, QEvent
 from PySide6.QtGui import QImage, QPixmap, QAction
 from multiprocessing import Queue, shared_memory
 from msg import Msg, MsgType as msgtp
@@ -27,6 +27,7 @@ from enum import auto, IntEnum
 from typing import *
 import os
 from clip import query_clip
+import math
 
 
 class BufferItem:
@@ -58,7 +59,7 @@ class Thread(QThread):
         self.q_view = q_view
 
         self.view_frame_id = 0  # next frame to consume
-        self.view_last_to_show = 0  # last frame to show
+        self.view_last_to_show = 0  # last frame to show(included)
         self.view_playrate = 1
 
         self.buffer = []
@@ -66,9 +67,10 @@ class Thread(QThread):
         self.last_update_t = 0
 
         self.stopped = False
+        self.paused = False
 
     def is_paused(self):
-        return self.view_last_to_show < self.view_frame_id
+        return self.view_last_to_show < self.view_frame_id and self.paused
 
     def open(self, path):
         self.pause()
@@ -76,9 +78,11 @@ class Thread(QThread):
 
     def pause(self):
         self.view_last_to_show = self.view_frame_id - 2
+        self.paused = True
 
     def play(self):
         self.view_last_to_show = self.view_frame_id + self.BASE_EXTENT_PACE * self.view_playrate
+        self.paused = False
         self.q_cmd.put(Msg(msgtp.EXTENT, self.view_last_to_show), block=False)
 
     def seek(self, seek_id):
@@ -118,6 +122,9 @@ class Thread(QThread):
                 self.seek(msg.data)
             elif msg.type == msgtp.VIEW_PLAYRATE:
                 self.playrate(msg.data)
+            elif msg.type == msgtp.VIEW_NAVIGATE:
+                if self.is_paused():
+                    self.seek(msg.data)
 
     def read_video(self):
         try:
@@ -166,7 +173,9 @@ class Thread(QThread):
             self.view_frame_id += item.rate
             self.last_update_t = cur_t
 
-            if self.view_last_to_show - self.view_frame_id < self.BASE_EXTENT_PACE * self.view_playrate / 2:
+            margin = self.view_last_to_show - self.view_frame_id
+            thresh = self.BASE_EXTENT_PACE * self.view_playrate / 2
+            if not self.paused and margin < thresh:
                 self.play()
 
     def stop(self) -> None:
@@ -197,6 +206,8 @@ class AnnManager:
         self.view_frame_id = 0
 
         self.is_dirty = False
+
+        self.navigate_repeat = 0
 
     def valid(self):
         return len(self.video_meta.name) > 0
@@ -476,6 +487,22 @@ class AnnWindow(QMainWindow):
     
     def update_clip_table(self, annotations):
         self._update_table(self.clip_table, annotations)
+    
+    def navigate_back(self, second):
+        if self.manager.video_meta.total_frame < 1:
+            return
+        next_frame = self.manager.view_frame_id
+        next_frame -= math.ceil(self.manager.video_meta.fps * second)
+        next_frame = max(next_frame, 0)
+        self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, next_frame))
+
+    def navigate_forward(self, second):
+        if self.manager.video_meta.total_frame < 1:
+            return
+        next_frame = self.manager.view_frame_id
+        next_frame += math.ceil(self.manager.video_meta.fps * second)
+        next_frame = min(next_frame, int(self.manager.video_meta.total_frame) - 1)
+        self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, next_frame))
 
     @Slot(VideoMetaData, list)
     def on_open_video(self, meta_data: VideoMetaData, annotations):
@@ -527,6 +554,23 @@ class AnnWindow(QMainWindow):
         self.th.quit()
         self.th.wait()
         return super().closeEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_A:
+            if event.isAutoRepeat():
+                self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
+            else:
+                self.manager.navigate_repeat = 0
+            self.navigate_back(0.5 * 2**(self.manager.navigate_repeat))
+
+        elif event.key() == Qt.Key.Key_D:
+            if event.isAutoRepeat():
+                self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
+            else:
+                self.manager.navigate_repeat = 0
+            self.navigate_forward(0.5 * 2**(self.manager.navigate_repeat))
+
+        return super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Space:

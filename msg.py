@@ -17,6 +17,7 @@ class MsgType(IntEnum):
     VIEW_TOGGLE = auto()
     VIEW_SEEK = auto()
     VIEW_PLAYRATE = auto()
+    VIEW_NAVIGATE = auto()
 
 class Msg:
     def __init__(self, type: MsgType, data=None) -> None:

@@ -3,13 +3,27 @@ from multiprocessing import Queue
 from window import AnnWindow
 from video import Video
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QObject, QEvent
 from clip import init_clip
 from argparse import ArgumentParser
+
+class KBInterceptor(QObject):
+    def __init__(self, window, parent=None) -> None:
+        super().__init__(parent)
+        self.window = window
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            self.window.keyPressEvent(event)
+            return True
+        return super().eventFilter(watched, event)
 
 def fn_proc_window(clip_path, q_frame: Queue, q_cmd: Queue):
     init_clip(clip_path)
     app = QApplication()
     window = AnnWindow(q_frame, q_cmd)
+    kb_interceptor = KBInterceptor(window, None)
+    app.installEventFilter(kb_interceptor)
     window.show()
     window.th.start()
     import sys

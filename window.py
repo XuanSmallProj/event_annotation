@@ -528,10 +528,13 @@ class AnnWindow(QMainWindow):
         self.th.wait()
         return super().closeEvent(event)
 
-    def keyPressEvent(self, event) -> None:
-        return super().keyPressEvent(event)
-
     def keyReleaseEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Space:
             self.toggle()
+        elif event.key() == Qt.Key.Key_M:
+            if self.new_ann_btn.isEnabled():
+                self.on_new_ann_btn_clicked()
+        elif event.key() == Qt.Key.Key_C:
+            if self.cancel_ann_btn.isEnabled():
+                self.on_cancel_btn_clicked()
         return super().keyReleaseEvent(event)

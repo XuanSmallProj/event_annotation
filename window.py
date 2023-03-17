@@ -149,6 +149,9 @@ class Thread(QThread):
             self.view_frame_id += 1
             self.last_update_t = cur_t
 
+            if self.view_last_to_show - self.view_frame_id < 50:
+                self.play()
+
     def stop(self) -> None:
         # GIL to protect it
         self.stopped = True

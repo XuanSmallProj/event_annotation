@@ -249,9 +249,13 @@ class AnnManager:
         end_ts = self.video_meta.frame_to_time(end_id)
         self.annotations.append((start_ts, end_ts))
 
-    def remove_annotation(self, index):
+    def remove_annotations(self, indexes):
         self.is_dirty = True
-        del self.annotations[index]
+        if isinstance(indexes, int):
+            del self.annotations[indexes]
+        else:
+            indexes = set(indexes)
+            self.annotations = [ann for i, ann in enumerate(self.annotations) if i not in indexes]
     
     def sort_annotations(self):
         self.annotations = sort_annotations(self.annotations)
@@ -554,10 +558,17 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def on_remove_ann_btn_clicked(self):
+        selected = [item.row() for item in self.annotation_table.selectedItems()]
+        selected = [i for i in selected if i >= 0]
+        self.manager.remove_annotations(selected)
+        self.view_update_by_manager(ann_update=True, button_update=True)
+        print(selected)
+        """
         c_row = self.annotation_table.currentRow()
         if c_row >= 0:
-            self.manager.remove_annotation(c_row)
+            self.manager.remove_annotations(c_row)
             self.view_update_by_manager(ann_update=True, button_update=True)
+            """
     
     @Slot()
     def on_save_ann_btn_clicked(self):

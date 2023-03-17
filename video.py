@@ -4,6 +4,7 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 from utils import get_video_name, annotations_from_str, VideoMetaData
 import os
+import time
 
 class Video:
     def __init__(self, q_video: Queue, q_cmd: Queue) -> None:
@@ -19,6 +20,8 @@ class Video:
         self.frame_start = 0
         self.frame_end = -1
         self.frame_cur = 0
+        self.frame_rd = 0
+        self.playrate = 1
 
         self.shm_managed = set()
 
@@ -40,6 +43,8 @@ class Video:
         self.frame_start = 0
         self.frame_end = -1
         self.frame_cur = 0
+        self.frame_rd = 0
+        self.playrate = 1
         if not ret:
             return False
 
@@ -79,13 +84,16 @@ class Video:
             self.frame_start = cmd.data
             self.frame_cur = self.frame_start
             self.frame_end = self.frame_start
+            self.frame_rd = self.frame_start
             if self.cap:
                 self.set_frame(self.frame_start)
+        elif cmd.type == msgtp.PLAYRATE:
+            self.playrate = cmd.data
 
     def read_cmd(self):
         while True:
             try:
-                cmd = self.q_cmd.get(timeout=1e-2)
+                cmd = self.q_cmd.get(block=False)
                 self.execute_cmd(cmd)
                 if self.close:
                     break
@@ -102,7 +110,7 @@ class Video:
 
         shm.close()
 
-        msg = Msg(msgtp.VIDEO_FRAMES, (init_id, shm.name, mat.shape, mat.dtype))
+        msg = Msg(msgtp.VIDEO_FRAMES, (init_id, self.playrate, shm.name, mat.shape, mat.dtype))
         self.q_video.put(msg, block=False)
 
     def read_frames(self, maxframes=3):
@@ -113,9 +121,12 @@ class Video:
                 break
             ret, frame = self.cap.read()
             if ret:
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results.append(frame)
-                self.frame_cur += 1
+                if self.frame_rd == self.frame_cur:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    results.append(frame)
+                    self.frame_cur += self.playrate
+                
+                self.frame_rd += 1
                 if len(results) >= maxframes:
                     break
             else:
@@ -133,4 +144,5 @@ class Video:
         while not self.close:
             self.read_cmd()
             self.read_frames()
+            time.sleep(0.001)
         self.shutdown()

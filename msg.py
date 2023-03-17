@@ -6,6 +6,7 @@ class MsgType(IntEnum):
     EXTENT = auto()
     CLOSE_SHM = auto()
     SEEK = auto()
+    PLAYRATE = auto()
 
     VIDEO_OPEN_ACK = auto()
     VIDEO_FRAMES = auto()
@@ -15,6 +16,7 @@ class MsgType(IntEnum):
     VIEW_PLAY = auto()
     VIEW_TOGGLE = auto()
     VIEW_SEEK = auto()
+    VIEW_PLAYRATE = auto()
 
 class Msg:
     def __init__(self, type: MsgType, data=None) -> None:

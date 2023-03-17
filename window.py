@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QSlider,
     QFileDialog,
+    QComboBox
 )
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal, Slot, QThread, Qt
@@ -27,21 +28,26 @@ from clip import query_clip
 
 
 class BufferItem:
-    def __init__(self, init_id, frames, shm) -> None:
+    def __init__(self, init_id, rate, frames, shm) -> None:
         self.init_id = init_id
+        self.rate = rate
         self.shm = shm
         self.shm_name = shm.name
         self.frames = frames
         self.cursor = 0
 
     def last_frame_id(self):
-        return self.init_id + len(self.frames) - 1
+        return self.init_id + (len(self.frames) - 1) * self.rate
+
+    def expect_next_frame_id(self):
+        return self.init_id + len(self.frames) * self.rate
 
 
 class Thread(QThread):
     sig_update_frame = Signal(int, QImage)
     sig_open_video = Signal(VideoMetaData, list)
 
+    BASE_EXTENT_PACE = 6
     def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue):
         super().__init__(parent=parent)
         self.q_frame = q_frame
@@ -51,6 +57,7 @@ class Thread(QThread):
 
         self.view_frame_id = 0  # next frame to consume
         self.view_last_to_show = 0  # last frame to show
+        self.view_playrate = 1
 
         self.buffer = []
 
@@ -69,7 +76,7 @@ class Thread(QThread):
         self.view_last_to_show = self.view_frame_id - 2
 
     def play(self):
-        self.view_last_to_show = self.view_frame_id + 100
+        self.view_last_to_show = self.view_frame_id + self.BASE_EXTENT_PACE * self.view_playrate
         self.q_cmd.put(Msg(msgtp.EXTENT, self.view_last_to_show), block=False)
 
     def seek(self, seek_id):
@@ -77,6 +84,11 @@ class Thread(QThread):
         self.view_last_to_show = seek_id
         self.buffer = []
         self.q_cmd.put(Msg(msgtp.SEEK, seek_id), block=False)
+    
+    def playrate(self, rate):
+        self.view_playrate = rate
+        self.q_cmd.put(Msg(msgtp.PLAYRATE, rate), block=False)
+        self.play()
 
     def change_view_image(self, frame_id, frame):
         h, w, ch = frame.shape
@@ -102,20 +114,22 @@ class Thread(QThread):
                     self.pause()
             elif msg.type == msgtp.VIEW_SEEK:
                 self.seek(msg.data)
+            elif msg.type == msgtp.VIEW_PLAYRATE:
+                self.playrate(msg.data)
 
     def read_video(self):
         try:
             msg = self.q_frame.get(block=False)
 
             if msg.type == msgtp.VIDEO_FRAMES:
-                init_id, shm_name, mat_shape, mat_dtype = msg.data
+                init_id, rate, shm_name, mat_shape, mat_dtype = msg.data
                 if (len(self.buffer) == 0 and init_id == self.view_frame_id) or (
                     len(self.buffer) > 0
-                    and (self.buffer[-1].last_frame_id() + 1 == init_id)
+                    and (self.buffer[-1].expect_next_frame_id() == init_id)
                 ):
                     shm = shared_memory.SharedMemory(name=shm_name)
                     frames = np.ndarray(mat_shape, dtype=mat_dtype, buffer=shm.buf)
-                    self.buffer.append(BufferItem(init_id, frames, shm))
+                    self.buffer.append(BufferItem(init_id, rate, frames, shm))
                 else:
                     self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name), block=False)
 
@@ -124,6 +138,7 @@ class Thread(QThread):
                 self.sig_open_video.emit(video_meta, annotations)
                 self.view_frame_id = 0
                 self.view_last_to_show = 0
+                self.view_playrate = 1
                 self.seek(0)
                 # self.play()
 
@@ -146,10 +161,10 @@ class Thread(QThread):
                 item.shm.close()
                 self.q_cmd.put(Msg(msgtp.CLOSE_SHM, item.shm_name), block=False)
 
-            self.view_frame_id += 1
+            self.view_frame_id += item.rate
             self.last_update_t = cur_t
 
-            if self.view_last_to_show - self.view_frame_id < 50:
+            if self.view_last_to_show - self.view_frame_id < self.BASE_EXTENT_PACE * self.view_playrate / 2:
                 self.play()
 
     def stop(self) -> None:
@@ -176,6 +191,7 @@ class AnnManager:
         self.clip_annotations = []
         self.state = self.State.IDLE
         self.new_start_frame_id = 0
+        # id of the current frame shown on the screen
         self.view_frame_id = 0
 
     def is_inside_clip(self, t: TimeStamp):
@@ -247,6 +263,7 @@ class AnnWindow(QMainWindow):
         self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
+        self.playrate_combobox.currentTextChanged.connect(self.on_playrate_changed)
         self.th.sig_update_frame.connect(self.set_frame)
         self.th.sig_open_video.connect(self.on_open_video)
 
@@ -260,6 +277,21 @@ class AnnWindow(QMainWindow):
         vlayout.addWidget(self.slider)
 
         button_layout = QHBoxLayout()
+
+        combobox_layout = QHBoxLayout()
+        combobox_layout.setSpacing(0)
+        playrate_label = QLabel("Play rate:", self)
+        playrate_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        playrate_label.setFixedWidth(60)
+        self.playrate_combobox = QComboBox(self)
+        self.playrate_combobox.setEditable(False)
+        self.playrate_combobox.addItems(["1", "2", "4", "8", "16"])
+        self.playrate_combobox.setFixedWidth(60)
+        combobox_layout.addWidget(playrate_label)
+        combobox_layout.addWidget(self.playrate_combobox)
+        
+        button_layout.addLayout(combobox_layout)
+
         self.new_ann_btn = QPushButton("Mark", self)
         button_layout.addWidget(self.new_ann_btn)
         vlayout.addLayout(button_layout)
@@ -303,7 +335,6 @@ class AnnWindow(QMainWindow):
 
             if self.manager.is_inside_clip(self.manager.get_ts()):
                 self.new_ann_btn.setStyleSheet("background-color: rgb(200, 0, 0)")
-        
 
     def pause(self):
         self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)
@@ -381,6 +412,11 @@ class AnnWindow(QMainWindow):
     @Slot()
     def on_save_ann_btn_clicked(self):
         self.manager.save_annotation()
+
+    @Slot()
+    def on_playrate_changed(self, rate):
+        rate = int(rate)
+        self.q_view.put(Msg(msgtp.VIEW_PLAYRATE, rate), block=False)
 
     def closeEvent(self, event) -> None:
         self.th.stop()

@@ -19,7 +19,7 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import annotations_to_str, TimeStamp, VideoMetaData
+from utils import annotations_to_str, TimeStamp, VideoMetaData, sort_annotations
 from enum import auto, IntEnum
 from typing import *
 import os
@@ -175,10 +175,20 @@ class AnnManager:
         self.new_start_frame_id = 0
         self.view_frame_id = 0
 
+    def is_inside_clip(self, t: TimeStamp):
+        for clip in self.clip_annotations:
+            if t.ge(clip[0]) and t.le(clip[1]):
+                return True
+        return False
+    
+    def get_ts(self):
+        return self.video_meta.frame_to_time(self.view_frame_id)
+
     def open(self, meta_data, annotations):
         self.video_meta = meta_data
-        self.annotations = annotations
+        self.annotations = sort_annotations(annotations)
         self.clip_annotations = query_clip(self.video_meta.name)
+        self.clip_annotations = sort_annotations(self.clip_annotations)
         self.new_start_frame_id = 0
         self.view_frame_id = 0
 
@@ -186,6 +196,7 @@ class AnnManager:
         start_ts = self.video_meta.frame_to_time(start_id)
         end_ts = self.video_meta.frame_to_time(end_id)
         self.annotations.append((start_ts, end_ts))
+        self.annotations = sort_annotations(self.annotations)
 
     def remove_annotation(self, index):
         del self.annotations[index]
@@ -277,6 +288,20 @@ class AnnWindow(QMainWindow):
         )
         return vlayout
 
+    def view_update_by_manager(self, ann_update=False, button_update=False):
+        if ann_update:
+            self.update_ann_table(self.manager.annotations)
+
+        if button_update:
+            if self.manager.state == self.manager.State.IDLE:
+                self.new_ann_btn.setStyleSheet("background-color: palette(window)")
+            elif self.manager.state == self.manager.State.NEW:
+                self.new_ann_btn.setStyleSheet("background-color: rgb(3, 252, 107)")
+
+            if self.manager.is_inside_clip(self.manager.get_ts()):
+                self.new_ann_btn.setStyleSheet("background-color: rgb(200, 0, 0)")
+        
+
     def pause(self):
         self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)
 
@@ -300,9 +325,10 @@ class AnnWindow(QMainWindow):
 
     @Slot(QImage)
     def set_frame(self, frame_id, image):
-        self.slider.setValue(frame_id)
         self.manager.view_frame_id = frame_id
+        self.slider.setValue(frame_id)
         self.img_label.setPixmap(QPixmap.fromImage(image))
+        self.view_update_by_manager(button_update=True)
 
     @Slot()
     def slider_pressed(self):
@@ -330,7 +356,7 @@ class AnnWindow(QMainWindow):
     def on_open_video(self, meta_data: VideoMetaData, annotations):
         self.manager.open(meta_data, annotations)
         self.slider_change_config(meta_data.total_frame)
-        self.update_ann_table(annotations)
+        self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot(QTableWidgetItem)
     def on_double_click_table_item(self, item: QTableWidgetItem):
@@ -340,19 +366,14 @@ class AnnWindow(QMainWindow):
     @Slot()
     def on_new_ann_btn_clicked(self):
         self.manager.toggle_new_annotation(self.manager.view_frame_id)
-        if self.manager.state == self.manager.State.IDLE:
-            # new annotation created
-            self.update_ann_table(self.manager.annotations)
-            self.new_ann_btn.setStyleSheet("background-color: palette(window)")
-        elif self.manager.state == self.manager.State.NEW:
-            self.new_ann_btn.setStyleSheet("background-color: rgb(3, 252, 107)")
+        self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot()
     def on_remove_ann_btn_clicked(self):
         c_row = self.annotation_table.currentRow()
         if c_row >= 0:
             self.manager.remove_annotation(c_row)
-            self.update_ann_table(self.manager.annotations)
+            self.view_update_by_manager(ann_update=True, button_update=True)
     
     @Slot()
     def on_save_ann_btn_clicked(self):

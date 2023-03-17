@@ -1,5 +1,6 @@
 import os
 import math
+import functools
 
 class TimeStamp:
     def __init__(self, hour: int, minute: int, second: int):
@@ -9,7 +10,7 @@ class TimeStamp:
     
     def __str__(self):
         return "{:02d}:{:02d}:{:02d}".format(self.hour, self.minute, self.second)
-    
+
     @classmethod
     def from_str(cls, s: str):
         lst = s.strip().split(":")
@@ -20,6 +21,29 @@ class TimeStamp:
 
     def to_second(self):
         return self.hour * 3600 + self.minute * 60 + self.second
+    
+    def cmp(self, t: "TimeStamp"):
+        if self.hour == t.hour:
+            if self.minute == t.minute:
+                return self.second - t.second
+            return self.minute - t.minute
+        else:
+            return self.hour - t.hour
+
+    def eq(self, t: "TimeStamp"):
+        return self.cmp(t) == 0
+
+    def lt(self, t: "TimeStamp"):
+        return self.cmp(t) < 0
+
+    def gt(self, t: "TimeStamp"):
+        return self.cmp(t) > 0
+    
+    def le(self, t: "TimeStamp"):
+        return self.cmp(t) <= 0
+    
+    def ge(self, t: "TimeStamp"):
+        return self.cmp(t) >= 0
 
 class VideoMetaData:
     def __init__(self, path, total_frame, fps):
@@ -60,3 +84,12 @@ def annotations_to_str(annotations):
     for ann in annotations:
         lst.append(f"{ann[0]} {ann[1]}")
     return "\n".join(lst)
+
+def sort_annotations(annotations, ascend=True):
+    def cmp(a0, a1):
+        fst = a0[0].cmp(a1[0])
+        if fst == 0:
+            return a0[1].cmp(a1[1])
+        return fst
+
+    return sorted(annotations, key=functools.cmp_to_key(cmp), reverse=(not ascend))

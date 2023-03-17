@@ -314,7 +314,7 @@ class AnnWindow(QMainWindow):
         ann_page = QWidget(control_tab)
         ann_vlayout = QVBoxLayout()
         button_layout = QHBoxLayout()
-        self.remove_ann_btn = QPushButton("remove", self)
+        self.remove_ann_btn = QPushButton("delete", self)
         self.save_ann_btn = QPushButton("save", self)
         button_layout.addWidget(self.remove_ann_btn)
         button_layout.addWidget(self.save_ann_btn)

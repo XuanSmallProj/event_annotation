@@ -228,6 +228,10 @@ class AnnManager:
         elif self.state == self.State.NEW:
             self.create_annotation(self.new_start_frame_id, frame_id)
             self.state = self.State.IDLE
+        
+    def cancel_new_annotation(self):
+        if self.state == self.State.NEW:
+            self.state = self.State.IDLE
 
     def save_annotation(self):
         path = os.path.join("dataset", "annotate", self.video_meta.name + ".txt")
@@ -263,6 +267,7 @@ class AnnWindow(QMainWindow):
         self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.clip_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
+        self.cancel_ann_btn.clicked.connect(self.on_cancel_btn_clicked)
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
         self.playrate_combobox.currentTextChanged.connect(self.on_playrate_changed)
@@ -295,7 +300,9 @@ class AnnWindow(QMainWindow):
         button_layout.addLayout(combobox_layout)
 
         self.new_ann_btn = QPushButton("Mark", self)
+        self.cancel_ann_btn = QPushButton("Cancel", self)
         button_layout.addWidget(self.new_ann_btn)
+        button_layout.addWidget(self.cancel_ann_btn)
         vlayout.addLayout(button_layout)
         return vlayout
 
@@ -355,8 +362,10 @@ class AnnWindow(QMainWindow):
         if button_update:
             if self.manager.state == self.manager.State.IDLE:
                 self.new_ann_btn.setStyleSheet("background-color: palette(window)")
+                self.cancel_ann_btn.setEnabled(False)
             elif self.manager.state == self.manager.State.NEW:
                 self.new_ann_btn.setStyleSheet("background-color: rgb(3, 252, 107)")
+                self.cancel_ann_btn.setEnabled(True)
 
             if self.manager.is_inside_clip(self.manager.get_ts()):
                 self.new_ann_btn.setStyleSheet("background-color: rgb(200, 0, 0)")
@@ -435,6 +444,11 @@ class AnnWindow(QMainWindow):
     def on_new_ann_btn_clicked(self):
         self.manager.toggle_new_annotation(self.manager.view_frame_id)
         self.view_update_by_manager(ann_update=True, button_update=True)
+    
+    @Slot()
+    def on_cancel_btn_clicked(self):
+        self.manager.cancel_new_annotation()
+        self.view_update_by_manager(button_update=True)
 
     @Slot()
     def on_remove_ann_btn_clicked(self):

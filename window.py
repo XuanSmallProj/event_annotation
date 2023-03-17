@@ -125,7 +125,7 @@ class Thread(QThread):
                 self.view_frame_id = 0
                 self.view_last_to_show = 0
                 self.seek(0)
-                self.play()
+                # self.play()
 
         except queue.Empty:
             pass

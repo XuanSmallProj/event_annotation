@@ -179,6 +179,9 @@ class AnnManager:
         end_ts = self.video_meta.frame_to_time(end_id)
         self.annotations.append((start_ts, end_ts))
 
+    def remove_annotation(self, index):
+        del self.annotations[index]
+
     def toggle_new_annotation(self, frame_id):
         if self.state == self.State.IDLE:
             self.new_start_frame_id = frame_id
@@ -214,6 +217,7 @@ class AnnWindow(QMainWindow):
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
+        self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.th.sig_update_frame.connect(self.set_frame)
         self.th.sig_open_video.connect(self.on_open_video)
 
@@ -242,6 +246,11 @@ class AnnWindow(QMainWindow):
 
     def _create_control_panel(self):
         vlayout = QVBoxLayout()
+        button_layout = QHBoxLayout()
+        self.remove_ann_btn = QPushButton("remove", self)
+        button_layout.addWidget(self.remove_ann_btn)
+        vlayout.addLayout(button_layout)
+
         self.annotation_table = QTableWidget(self)
         vlayout.addWidget(self.annotation_table)
         self.annotation_table.setColumnCount(2)
@@ -320,6 +329,13 @@ class AnnWindow(QMainWindow):
             self.new_ann_btn.setText("Start")
         elif self.manager.state == self.manager.State.NEW:
             self.new_ann_btn.setText("End")
+
+    @Slot()
+    def on_remove_ann_btn_clicked(self):
+        c_row = self.annotation_table.currentRow()
+        if c_row >= 0:
+            self.manager.remove_annotation(c_row)
+            self.update_ann_table(self.manager.annotations)
 
     def closeEvent(self, event) -> None:
         self.th.terminate()

@@ -23,3 +23,12 @@ Play Rate：倍速播放
 
 ### Tabs
 右边有annotation、clips、breakpoints三个tab，双击tab中的内容可以跳转到相应的帧。annotation表示当前标记内容，clips表示当前视频相关的MultiSports片段，方便在片段附近进行标记，breakpoints提供了一个书签的作用。
+
+### 快捷键
+空格：暂停/播放
+
+M：相当于点击Mark按钮
+
+C：相当于点击Cancel按钮
+
+A/D：后退/前进

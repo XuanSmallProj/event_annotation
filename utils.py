@@ -73,6 +73,8 @@ def get_video_name(path):
 def annotations_from_str(s: str):
     result = []
     for line in s.split("\n"):
+        if not line:
+            continue
         diff_part = line.strip().split(" ")
         t0 = TimeStamp.from_str(diff_part[0])
         t1 = TimeStamp.from_str(diff_part[1])

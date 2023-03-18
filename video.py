@@ -31,6 +31,8 @@ class Video:
             with open(path, "r") as f:
                 return f.read()
         else:
+            with open(path, "w") as f:
+                f.write('')
             return ""
 
     def open(self, path):

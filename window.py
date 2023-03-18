@@ -231,7 +231,8 @@ class AnnManager:
                 end, ann[0], ann[1]
             ):
                 return True
-            return not (end.lt(ann[0]) or start.gt(ann[1]))
+            if not (end.lt(ann[0]) or start.gt(ann[1])):
+                return True
         return False
 
     def get_ann_start_ts(self):

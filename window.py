@@ -461,7 +461,7 @@ class AnnWindow(QMainWindow):
         breakpoint_update=False,
     ):
         if status_update:
-            msg = f"{self.manager.view_frame_id} / {self.manager.get_ts()}"
+            msg = f"{self.manager.video_meta.name} {self.manager.view_frame_id} / {self.manager.get_ts()}"
             self.status_bar.showMessage(msg)
 
         if ann_update:

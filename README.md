@@ -3,7 +3,7 @@
 ## 环境
 当前目录下有含MultiSports标注信息的`match_matched_clips.csv`文件，并且有`dataset/annotate`文件夹。
 
-依赖：PySide6，pandas，numpy
+依赖：PySide6，pandas，numpy, cv2
 
 ## 简易使用流程
 切换到当前目录，`python main.py`打开窗口，点击左上角Open打开视频文件，移动到相关位置，点击Mark按钮表示当前标注的开始，到了结束的一帧再点击Mark就能够将这两个时间点记录在`dataset/annotate`下的相关文件里。

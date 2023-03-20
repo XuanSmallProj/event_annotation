@@ -20,6 +20,12 @@ def query_clip(video_name):
         result.append((start_ts, end_ts))
     return result
 
+def get_clip_videos(sport):
+    global clip
+    result = []
+    part = clip[clip["sport"] == sport]
+    return list(set(part["video"]))
+
 if __name__ == "__main__":
     init_clip("match_matched_clips.csv")
     query_clip("v_-hhDbvY5aAM")

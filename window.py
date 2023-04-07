@@ -206,6 +206,7 @@ class AnnManager:
         self.breakpoints = []
         self.state = self.State.IDLE
         self.new_start_frame_id = 0
+        self.new_event_name = ""
         # id of the current frame shown on the screen
         self.view_frame_id = 0
 
@@ -281,11 +282,19 @@ class AnnManager:
 
     def toggle_new_event_annotation(self, event_name, frame_id):
         if self.state == self.State.IDLE:
-            self.new_start_frame_id = frame_id
-            self.state = self.State.NEW
+            if event_name in self.event_meta:
+                self.new_start_frame_id = frame_id
+                self.new_event_name = event_name
+                event = self.event_meta[event_name]
+                if event.type == "shot":
+                    self.create_event_annotations(event_name, self.new_start_frame_id, frame_id)
+                else:
+                    self.state = self.State.NEW
+
         elif self.state == self.State.NEW:
-            self.create_event_annotations(event_name, self.new_start_frame_id, frame_id)
-            self.state = self.State.IDLE
+            if self.new_event_name in self.event_meta:
+                self.create_event_annotations(self.new_event_name, self.new_start_frame_id, frame_id)
+                self.state = self.State.IDLE
 
     def cancel_new_event_annotation(self):
         if self.state == self.State.NEW:

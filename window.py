@@ -259,7 +259,6 @@ class AnnManager:
         self.playrate = 1
 
     def create_event_annotations(self, name, start_id, end_id):
-        print(f"create new event annotations: {name} {self.event_meta}")
         self.is_dirty = True
         if name in self.event_meta:
             type = self.event_meta[name].type
@@ -372,6 +371,17 @@ class AnnWindow(QMainWindow):
         combobox_layout.addWidget(playrate_label)
         combobox_layout.addWidget(self.playrate_combobox)
 
+        event_name_label = QLabel("Event:", self)
+        event_name_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        event_name_label.setFixedWidth(60)
+        self.event_name_combobox = QComboBox(self)
+        event_names = [name for name in self.manager.event_meta.keys()]
+        self.event_name_combobox.addItems(event_names)
+        combobox_layout.addWidget(event_name_label)
+        combobox_layout.addWidget(self.event_name_combobox)
+
         button_layout.addLayout(combobox_layout)
 
         self.new_ann_btn = QPushButton("Mark", self)
@@ -392,6 +402,8 @@ class AnnWindow(QMainWindow):
         toolbar.addAction(button_action)
 
     def _create_control_panel(self):
+        table_width = 300
+
         control_vlayout = QVBoxLayout()
         control_tab = QTabWidget(self)
 
@@ -407,6 +419,7 @@ class AnnWindow(QMainWindow):
         ann_vlayout.addLayout(button_layout)
 
         self.annotation_table = QTableWidget(self)
+        self.annotation_table.setFixedWidth(table_width)
         ann_vlayout.addWidget(self.annotation_table)
         self.annotation_table.setColumnCount(3)
         self.annotation_table.setHorizontalHeaderLabels(["event", "start", "end"])
@@ -419,6 +432,7 @@ class AnnWindow(QMainWindow):
         breakpoint_page = QWidget(control_tab)
         breakpoint_layout = QVBoxLayout()
         self.breakpoint_table = QTableWidget(self)
+        self.breakpoint_table.setFixedWidth(table_width)
         breakpoint_layout.addWidget(self.breakpoint_table)
         self.breakpoint_table.setColumnCount(1)
         self.breakpoint_table.setHorizontalHeaderLabels(["time"])
@@ -588,7 +602,8 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def on_new_ann_btn_clicked(self):
-        self.manager.toggle_new_event_annotation("动画回放", self.manager.view_frame_id)
+        event_name = self.event_name_combobox.currentText()
+        self.manager.toggle_new_event_annotation(event_name, self.manager.view_frame_id)
         self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot()

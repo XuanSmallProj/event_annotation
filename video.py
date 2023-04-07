@@ -25,16 +25,6 @@ class Video:
 
         self.shm_managed = set()
 
-    def read_annotation(self, video_name, create=False):
-        path = os.path.join("dataset", "annotate", video_name + ".txt")
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                return f.read()
-        else:
-            with open(path, "w") as f:
-                f.write('')
-            return ""
-
     def open(self, path):
         self.cap = cv2.VideoCapture(path)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
@@ -50,13 +40,8 @@ class Video:
         if not ret:
             return False
 
-        video_name = get_video_name(path)
-        # read annotation file
-        annotation = self.read_annotation(video_name)
-        annotation = annotations_from_str(annotation)
         meta_data = VideoMetaData(path, self.total_frame, self.fps)
-        ack_data = (meta_data, annotation)
-        self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, ack_data), block=False)
+        self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, meta_data), block=False)
     
     def set_frame(self, frame):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame)

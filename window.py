@@ -22,13 +22,13 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import annotations_to_str, TimeStamp, VideoMetaData, sort_annotations
-from enum import auto, IntEnum
+from utils import VideoMetaData, sort_events, Event
+from enum import IntEnum
 from typing import *
 import os
-from clip import query_clip
 import math
-
+from extract import get_extract_meta, extract_name_split
+import json
 
 class BufferItem:
     def __init__(self, init_id, rate, frames, shm) -> None:
@@ -48,7 +48,7 @@ class BufferItem:
 
 class Thread(QThread):
     sig_update_frame = Signal(int, QImage)
-    sig_open_video = Signal(VideoMetaData, list)
+    sig_open_video = Signal(VideoMetaData)
 
     BASE_EXTENT_PACE = 6
 
@@ -145,8 +145,8 @@ class Thread(QThread):
                     self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name), block=False)
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
-                video_meta, annotations = msg.data
-                self.sig_open_video.emit(video_meta, annotations)
+                video_meta = msg.data
+                self.sig_open_video.emit(video_meta)
                 self.view_frame_id = 0
                 self.view_last_to_show = 0
                 self.view_playrate = 1
@@ -200,8 +200,9 @@ class AnnManager:
 
     def __init__(self) -> None:
         self.video_meta = VideoMetaData("", 0, 1)
-        self.annotations = []
-        self.clip_annotations = []
+        self.extract_origin_name = ""
+        self.extract_index = 0
+        self.event_annotations = []  # Tuple[str, int, int]
         self.breakpoints = []
         self.state = self.State.IDLE
         self.new_start_frame_id = 0
@@ -213,92 +214,100 @@ class AnnManager:
         self.navigate_repeat = 0
         self.playrate = 1
 
+        self.extract_meta = get_extract_meta()
+        self.event_meta = self.get_event_meta()
+    
+    def get_event_meta(self):
+        with open("event.json", "r") as f:
+            config = json.load(f)
+        res = {}
+        for k, v in config.items():
+            for name, type in v.items():
+                res[name] = Event(name, type)
+        return res
+
+    def read_event_annotation_str(self, vname):
+        path = os.path.join("dataset", "annotate_event", vname + ".txt")
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return f.read()
+        else:
+            with open(path, "w") as f:
+                f.write('')
+            return ""
+    
+    def parse_event_annotation_str(self, s: str):
+        res = []
+        for line in s.split('\n'):
+            if line:
+                e = Event.parse(line)
+                if e.name in self.event_meta:
+                    e.type = self.event_meta[e.name].type
+                    res.append(e)
+        return res
+
     def valid(self):
         return len(self.video_meta.name) > 0
 
-    def _t_inside(self, t: TimeStamp, s0: TimeStamp, s1: TimeStamp):
-        return t.ge(s0) and t.le(s1)
-
-    def is_inside_clip(self, t: TimeStamp):
-        for clip in self.clip_annotations:
-            if self._t_inside(t, clip[0], clip[1]):
-                return True
-        return False
-
-    def is_ann_overlap(self, start: TimeStamp, end: TimeStamp):
-        for ann in self.annotations:
-            if self._t_inside(start, ann[0], ann[1]) or self._t_inside(
-                end, ann[0], ann[1]
-            ):
-                return True
-            if not (end.lt(ann[0]) or start.gt(ann[1])):
-                return True
-        return False
-
-    def get_ann_start_ts(self):
-        return self.video_meta.frame_to_time(self.new_start_frame_id)
-
-    def get_ts(self):
-        return self.video_meta.frame_to_time(self.view_frame_id)
-
-    def open(self, meta_data, annotations):
+    def open(self, meta_data):
         self.video_meta = meta_data
-        self.annotations = sort_annotations(annotations)
-        self.clip_annotations = query_clip(self.video_meta.name)
-        self.clip_annotations = sort_annotations(self.clip_annotations)
+        self.event_annotations = self.parse_event_annotation_str(self.read_event_annotation_str(self.video_meta.name))
         self.breakpoints = []
         self.new_start_frame_id = 0
         self.view_frame_id = 0
         self.is_dirty = False
         self.playrate = 1
 
-    def create_annotation(self, start_id, end_id):
+    def create_event_annotations(self, name, start_id, end_id):
+        print(f"create new event annotations: {name} {self.event_meta}")
         self.is_dirty = True
-        start_ts = self.video_meta.frame_to_time(start_id)
-        end_ts = self.video_meta.frame_to_time(end_id)
-        self.annotations.append((start_ts, end_ts))
+        if name in self.event_meta:
+            type = self.event_meta[name].type
+            e = Event(name, type)
+            e.f0, e.f1 = start_id, end_id
+            self.event_annotations.append(e)
 
-    def remove_annotations(self, indexes):
+    def remove_event_annotations(self, indexes):
         self.is_dirty = True
         if isinstance(indexes, int):
-            del self.annotations[indexes]
+            del self.event_annotations[indexes]
         else:
             indexes = set(indexes)
-            self.annotations = [
-                ann for i, ann in enumerate(self.annotations) if i not in indexes
+            self.event_annotations = [
+                ann for i, ann in enumerate(self.event_annotations) if i not in indexes
             ]
 
-    def sort_annotations(self):
-        self.annotations = sort_annotations(self.annotations)
+    def sort_event_annotations(self):
+        self.event_annotations = sort_events(self.event_annotations)
 
-    def toggle_new_annotation(self, frame_id):
+    def toggle_new_event_annotation(self, event_name, frame_id):
         if self.state == self.State.IDLE:
             self.new_start_frame_id = frame_id
             self.state = self.State.NEW
         elif self.state == self.State.NEW:
-            self.create_annotation(self.new_start_frame_id, frame_id)
+            self.create_event_annotations(event_name, self.new_start_frame_id, frame_id)
             self.state = self.State.IDLE
 
-    def cancel_new_annotation(self):
+    def cancel_new_event_annotation(self):
         if self.state == self.State.NEW:
             self.state = self.State.IDLE
 
-    def save_annotation(self):
-        path = os.path.join("dataset", "annotate", self.video_meta.name + ".txt")
-        sorted_annotations = sort_annotations(self.annotations)
-        content = annotations_to_str(sorted_annotations)
+    def save_event_annotations(self):
+        path = os.path.join("dataset", "annotate_event", self.video_meta.name + ".txt")
+        sorted_annotations = sort_events(self.event_annotations)
+        content = "\n".join([str(e) for e in sorted_annotations])
         with open(path, "w") as f:
             f.write(content)
         self.is_dirty = False
 
+    def event_annotations_tuple_list(self):
+        return [(e.name, e.f0, e.f1) for e in self.event_annotations]
+
     def add_breakpoint(self, frame_id):
-        self.breakpoints.append(self.video_meta.frame_to_time(frame_id))
+        self.breakpoints.append(frame_id)
 
 
 class AnnWindow(QMainWindow):
-    ANN_LEN_MIN = 2 * 60  # at least 2min
-    ANN_LEN_MAX = 3 * 60  # at most 3min
-
     def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
         super().__init__()
         self.manager: AnnManager = AnnManager()
@@ -325,7 +334,6 @@ class AnnWindow(QMainWindow):
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.sliderPressed.connect(self.slider_pressed)
         self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
-        self.clip_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.breakpoint_table.itemDoubleClicked.connect(self.on_double_click_table_item)
 
         self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
@@ -400,23 +408,13 @@ class AnnWindow(QMainWindow):
 
         self.annotation_table = QTableWidget(self)
         ann_vlayout.addWidget(self.annotation_table)
-        self.annotation_table.setColumnCount(2)
-        self.annotation_table.setHorizontalHeaderLabels(["start", "end"])
+        self.annotation_table.setColumnCount(3)
+        self.annotation_table.setHorizontalHeaderLabels(["event", "start", "end"])
         self.annotation_table.setEditTriggers(
             QtWidgets.QAbstractItemView.NoEditTriggers
         )
         ann_page.setLayout(ann_vlayout)
         control_tab.addTab(ann_page, "Annotations")
-
-        clip_page = QWidget(control_tab)
-        clip_vlayout = QVBoxLayout()
-        self.clip_table = QTableWidget(self)
-        clip_vlayout.addWidget(self.clip_table)
-        self.clip_table.setColumnCount(2)
-        self.clip_table.setHorizontalHeaderLabels(["start", "end"])
-        self.clip_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        clip_page.setLayout(clip_vlayout)
-        control_tab.addTab(clip_page, "Clips")
 
         breakpoint_page = QWidget(control_tab)
         breakpoint_layout = QVBoxLayout()
@@ -447,7 +445,7 @@ class AnnWindow(QMainWindow):
         if self.manager.valid() and self.manager.is_dirty:
             ret = self._show_save_dialog()
             if ret == QMessageBox.StandardButton.Save:
-                self.manager.save_annotation()
+                self.manager.save_event_annotations()
             elif ret == QMessageBox.StandardButton.Cancel:
                 return -1
         return 0
@@ -456,19 +454,15 @@ class AnnWindow(QMainWindow):
         self,
         status_update=True,
         ann_update=False,
-        clip_update=False,
         button_update=False,
         breakpoint_update=False,
     ):
         if status_update:
-            msg = f"{self.manager.video_meta.name} {self.manager.view_frame_id} / {self.manager.get_ts()}"
+            msg = f"{self.manager.video_meta.name} {self.manager.view_frame_id}"
             self.status_bar.showMessage(msg)
 
         if ann_update:
-            self.update_ann_table(self.manager.annotations)
-
-        if clip_update:
-            self.update_clip_table(self.manager.clip_annotations)
+            self.update_ann_table(self.manager.event_annotations_tuple_list())
 
         if breakpoint_update:
             self.update_breakpoint_table(self.manager.breakpoints)
@@ -476,22 +470,11 @@ class AnnWindow(QMainWindow):
         if button_update:
             new_enable = True
             cancel_enable = True
-            now_ts = self.manager.get_ts()
+
             if self.manager.state == self.manager.State.IDLE:
                 cancel_enable = False
             elif self.manager.state == self.manager.State.NEW:
-                start_ts = self.manager.get_ann_start_ts()
-                if now_ts.to_second() - start_ts.to_second() < self.ANN_LEN_MIN:
-                    new_enable = False
-                if now_ts.to_second() - start_ts.to_second() > self.ANN_LEN_MAX:
-                    new_enable = False
-                if self.manager.is_ann_overlap(start_ts, now_ts):
-                    new_enable = False
-
-            if self.manager.is_ann_overlap(now_ts, now_ts):
-                new_enable = False
-            if self.manager.is_inside_clip(self.manager.get_ts()):
-                new_enable = False
+                new_enable = True
 
             if not new_enable:
                 self.new_ann_btn.setStyleSheet("background-color: rgb(200, 0, 0)")
@@ -517,12 +500,8 @@ class AnnWindow(QMainWindow):
     def play(self):
         self.q_view.put(Msg(msgtp.VIEW_PLAY, None), block=False)
 
-    def seek(self, seek_id):
-        self.q_view.put(Msg(msgtp.VIEW_SEEK, seek_id), block=False)
-
-    def seek_by_time(self, ts):
-        frame_id = self.manager.video_meta.time_to_frame(ts)
-        self.seek(frame_id)
+    def seek(self, frame_id):
+        self.q_view.put(Msg(msgtp.VIEW_SEEK, frame_id), block=False)
 
     @Slot()
     def view_open_video(self):
@@ -568,9 +547,6 @@ class AnnWindow(QMainWindow):
 
     def update_ann_table(self, annotations):
         self._update_table(self.annotation_table, annotations)
-
-    def update_clip_table(self, annotations):
-        self._update_table(self.clip_table, annotations)
     
     def update_breakpoint_table(self, breakpoints):
         self._update_table(self.breakpoint_table, breakpoints)
@@ -594,27 +570,30 @@ class AnnWindow(QMainWindow):
         self.view_update_by_manager(button_update=True)
 
     @Slot(VideoMetaData, list)
-    def on_open_video(self, meta_data: VideoMetaData, annotations):
-        self.manager.open(meta_data, annotations)
+    def on_open_video(self, meta_data: VideoMetaData):
+        self.manager.open(meta_data)
         self.slider_change_config(meta_data.total_frame)
         self.playrate_combobox.setCurrentText("1")
         self.view_update_by_manager(
-            ann_update=True, clip_update=True, button_update=True
+            ann_update=True, button_update=True
         )
 
     @Slot(QTableWidgetItem)
     def on_double_click_table_item(self, item: QTableWidgetItem):
-        ts = TimeStamp.from_str(item.text())
-        self.seek_by_time(ts)
+        try:
+            frame_id = int(item.text())
+            self.seek(frame_id)
+        except:
+            pass
 
     @Slot()
     def on_new_ann_btn_clicked(self):
-        self.manager.toggle_new_annotation(self.manager.view_frame_id)
+        self.manager.toggle_new_event_annotation("动画回放", self.manager.view_frame_id)
         self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot()
     def on_cancel_btn_clicked(self):
-        self.manager.cancel_new_annotation()
+        self.manager.cancel_new_event_annotation()
         self.view_update_by_manager(button_update=True)
 
     @Slot()
@@ -624,19 +603,19 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def on_sort_ann_btn_clicked(self):
-        self.manager.sort_annotations()
+        self.manager.sort_event_annotations()
         self.view_update_by_manager(ann_update=True)
 
     @Slot()
     def on_remove_ann_btn_clicked(self):
         selected = [item.row() for item in self.annotation_table.selectedItems()]
         selected = [i for i in selected if i >= 0]
-        self.manager.remove_annotations(selected)
+        self.manager.remove_event_annotations(selected)
         self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot()
     def on_save_ann_btn_clicked(self):
-        self.manager.save_annotation()
+        self.manager.save_event_annotations()
 
     @Slot()
     def on_playrate_changed(self, rate):

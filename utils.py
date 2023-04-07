@@ -95,3 +95,33 @@ def sort_annotations(annotations, ascend=True):
         return fst
 
     return sorted(annotations, key=functools.cmp_to_key(cmp), reverse=(not ascend))
+
+class Event:
+    def __init__(self, name, type) -> None:
+        self.name = name
+        self.type = type
+        self.f0 = 0
+        self.f1 = 0
+
+    @staticmethod
+    def parse(s: str) -> 'Event':
+        """
+        <event_name>,f0,f1
+        """
+        lst = s.split(',')
+        name = lst[0]
+        event = Event(name, "interval")
+        event.f0 = int(lst[1])
+        event.f1 = int(lst[2])
+        return event
+
+    def __str__(self):
+        return f"{self.name},{self.f0},{self.f1}"
+
+def sort_events(events, ascend=True):
+    def cmp(e0, e1):
+        if e0.f0 == e1.f0:
+            return e0.f1 < e1.f1
+        else:
+            return e0.f0 < e1.f0
+    return sorted(events, key=functools.cmp_to_key(cmp), reverse=(not ascend))

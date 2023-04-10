@@ -574,20 +574,20 @@ class AnnWindow(QMainWindow):
     def update_breakpoint_table(self, breakpoints):
         self._update_table(self.breakpoint_table, breakpoints)
 
-    def navigate_back(self, second):
+    def navigate_back(self, frame):
         if self.manager.video_meta.total_frame < 1:
             return
         next_frame = self.manager.view_frame_id
-        next_frame -= math.ceil(self.manager.video_meta.fps * second)
+        next_frame -= frame
         next_frame = max(next_frame, 0)
         self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, next_frame))
         self.view_update_by_manager(button_update=True)
 
-    def navigate_forward(self, second):
+    def navigate_forward(self, frame):
         if self.manager.video_meta.total_frame < 1:
             return
         next_frame = self.manager.view_frame_id
-        next_frame += math.ceil(self.manager.video_meta.fps * second)
+        next_frame += frame
         next_frame = min(next_frame, int(self.manager.video_meta.total_frame) - 1)
         self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, next_frame))
         self.view_update_by_manager(button_update=True)
@@ -662,14 +662,14 @@ class AnnWindow(QMainWindow):
                 self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
             else:
                 self.manager.navigate_repeat = 0
-            self.navigate_back(0.5 * 2 ** (self.manager.navigate_repeat))
+            self.navigate_back(1 * 2 ** (self.manager.navigate_repeat))
 
         elif event.key() == Qt.Key.Key_D:
             if event.isAutoRepeat():
                 self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
             else:
                 self.manager.navigate_repeat = 0
-            self.navigate_forward(0.5 * 2 ** (self.manager.navigate_repeat))
+            self.navigate_forward(1 * 2 ** (self.manager.navigate_repeat))
 
         return super().keyPressEvent(event)
 

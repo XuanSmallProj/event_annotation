@@ -74,11 +74,14 @@ class Thread(QThread):
         return self.view_last_to_show < self.view_frame_id and self.paused
 
     def open(self, path):
-        self.pause()
+        self.pause(lag=False)
         self.q_cmd.put(Msg(msgtp.OPEN, path), block=False)
 
-    def pause(self):
-        self.view_last_to_show = self.view_frame_id - 2
+    def pause(self, lag):
+        if lag:
+            self.view_last_to_show = self.view_frame_id
+        else:
+            self.view_last_to_show = self.view_frame_id - 2
         self.paused = True
 
     def play(self):
@@ -110,7 +113,7 @@ class Thread(QThread):
                 break
             msg = self.q_view.get(block=False)
             if msg.type == msgtp.VIEW_PAUSE:
-                self.pause()
+                self.pause(msg.data)
             elif msg.type == msgtp.VIEW_PLAY:
                 self.play()
             elif msg.type == msgtp.VIEW_OPEN:
@@ -119,7 +122,7 @@ class Thread(QThread):
                 if self.is_paused():
                     self.play()
                 else:
-                    self.pause()
+                    self.pause(lag=False)
             elif msg.type == msgtp.VIEW_SEEK:
                 self.seek(msg.data)
             elif msg.type == msgtp.VIEW_PLAYRATE:
@@ -514,8 +517,8 @@ class AnnWindow(QMainWindow):
         # TODO: figure out why
         self.centralWidget().setFocus()
 
-    def pause(self):
-        self.q_view.put(Msg(msgtp.VIEW_PAUSE, None), block=False)
+    def pause(self, lag):
+        self.q_view.put(Msg(msgtp.VIEW_PAUSE, lag), block=False)
 
     def toggle(self):
         self.q_view.put(Msg(msgtp.VIEW_TOGGLE, None), block=False)
@@ -544,12 +547,12 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def slider_pressed(self):
-        self.pause()
+        self.pause(lag=False)
 
     @Slot()
     def slider_released(self):
         self.seek(self.slider.value())
-        self.play()
+        self.pause(lag=True)
 
     def slider_change_config(self, total):
         self.slider.setMaximum(total)

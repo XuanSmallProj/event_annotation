@@ -410,7 +410,7 @@ class AnnWindow(QMainWindow):
         for event in event_list:
             button = QPushButton(event, self)
             button.setStyleSheet(self.btn_idl_stylesheet)
-            button.setFixedHeight(50)
+            button.setFixedHeight(40)
             self.event_btn_mapping[event] = button
             self.btn_group.addButton(button)
             v_layout.addWidget(button)

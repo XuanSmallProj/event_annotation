@@ -13,10 +13,11 @@ from PySide6.QtWidgets import (
     QComboBox,
     QTabWidget,
     QMessageBox,
+    QButtonGroup,
 )
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal, Slot, QThread, Qt, QObject, QEvent
-from PySide6.QtGui import QImage, QPixmap, QAction
+from PySide6.QtGui import QImage, QPixmap, QAction, QPalette, QColor
 from multiprocessing import Queue, shared_memory
 from msg import Msg, MsgType as msgtp
 import numpy as np
@@ -207,9 +208,6 @@ class AnnManager:
         self.extract_index = 0
         self.event_annotations = []  # Tuple[str, int, int]
         self.breakpoints = []
-        self.state = self.State.IDLE
-        self.new_start_frame_id = 0
-        self.new_event_name = ""
         # id of the current frame shown on the screen
         self.view_frame_id = 0
 
@@ -219,9 +217,18 @@ class AnnManager:
         self.playrate = 1
 
         self.extract_meta = get_extract_meta()
-        self.event_meta = self.get_event_meta()
+        self.event_meta = self.read_event_meta()
+        self.event_btn_state = {}
+        for k in self.event_meta.keys():
+            self.event_btn_state[k] = (self.State.IDLE, 0)
     
-    def get_event_meta(self):
+    def get_event_list(self):
+        return [k for k in self.event_meta.keys()]
+
+    def get_event_btn_state(self, event):
+        return self.event_btn_state[event][0]
+
+    def read_event_meta(self):
         with open("event.json", "r") as f:
             config = json.load(f)
         res = {}
@@ -283,21 +290,20 @@ class AnnManager:
     def sort_event_annotations(self):
         self.event_annotations = sort_events(self.event_annotations)
 
-    def toggle_new_event_annotation(self, event_name, frame_id):
-        if self.state == self.State.IDLE:
-            if event_name in self.event_meta:
-                self.new_start_frame_id = frame_id
-                self.new_event_name = event_name
-                event = self.event_meta[event_name]
-                if event.type == "shot":
-                    self.create_event_annotations(event_name, self.new_start_frame_id, frame_id)
+    def event_button_clicked(self, event_name):
+        if event_name in self.event_meta:
+            st, frame = self.event_btn_state[event_name]
+            type = self.event_meta[event_name].type
+            if st == self.State.IDLE:
+                if type == "shot":
+                    self.create_event_annotations(event_name, self.view_frame_id, self.view_frame_id)
+                elif type == "interval":
+                    self.event_btn_state[event_name] = self.State.NEW, self.view_frame_id
                 else:
-                    self.state = self.State.NEW
-
-        elif self.state == self.State.NEW:
-            if self.new_event_name in self.event_meta:
-                self.create_event_annotations(self.new_event_name, self.new_start_frame_id, frame_id)
-                self.state = self.State.IDLE
+                    raise ValueError(f"{type} not implemented")
+            elif st == self.State.NEW:
+                self.create_event_annotations(event_name, frame, self.view_frame_id)
+                self.event_btn_state[event_name] = self.State.IDLE, 0
 
     def cancel_new_event_annotation(self):
         if self.state == self.State.NEW:
@@ -324,17 +330,22 @@ class AnnWindow(QMainWindow):
         self.manager: AnnManager = AnnManager()
         self.setWindowTitle("Annotator")
 
+        self.btn_idl_stylesheet = r"background-color: rgb(240, 248, 255)"
+        self.btn_new_stylesheet = r"background-color: rgb(3, 252, 107)"
+
         self._create_tool_bar()
         self.status_bar = self.statusBar()
 
         top_hlayout = QHBoxLayout()
         top_hlayout.addLayout(self._create_image_viewer())
+        top_hlayout.addLayout(self._create_button_group())
         top_hlayout.addLayout(self._create_control_panel())
 
         central_widget = QWidget(self)
         central_widget.setLayout(top_hlayout)
         self.setCentralWidget(central_widget)
 
+        self.view_update_by_manager(ann_update=True, button_update=True)
         self.q_view = Queue()
         self.th = Thread(self, q_frame, q_cmd, self.q_view)
 
@@ -347,14 +358,14 @@ class AnnWindow(QMainWindow):
         self.annotation_table.itemDoubleClicked.connect(self.on_double_click_table_item)
         self.breakpoint_table.itemDoubleClicked.connect(self.on_double_click_table_item)
 
-        self.new_ann_btn.clicked.connect(self.on_new_ann_btn_clicked)
-        self.cancel_ann_btn.clicked.connect(self.on_cancel_btn_clicked)
         self.breakpoint_btn.clicked.connect(self.on_breakpoint_btn_clicked)
 
         self.sort_ann_btn.clicked.connect(self.on_sort_ann_btn_clicked)
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
         self.playrate_combobox.currentTextChanged.connect(self.on_playrate_changed)
+        self.btn_group.buttonClicked.connect(self.on_event_btn_clicked)
+
         self.th.sig_update_frame.connect(self.set_frame)
         self.th.sig_open_video.connect(self.on_open_video)
 
@@ -382,28 +393,29 @@ class AnnWindow(QMainWindow):
         self.playrate_combobox.setFixedWidth(60)
         combobox_layout.addWidget(playrate_label)
         combobox_layout.addWidget(self.playrate_combobox)
-
-        event_name_label = QLabel("Event:", self)
-        event_name_label.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        event_name_label.setFixedWidth(60)
-        self.event_name_combobox = QComboBox(self)
-        event_names = [name for name in self.manager.event_meta.keys()]
-        self.event_name_combobox.addItems(event_names)
-        combobox_layout.addWidget(event_name_label)
-        combobox_layout.addWidget(self.event_name_combobox)
-
         button_layout.addLayout(combobox_layout)
 
-        self.new_ann_btn = QPushButton("Mark", self)
-        self.cancel_ann_btn = QPushButton("Cancel", self)
         self.breakpoint_btn = QPushButton("BreakPoint", self)
-        button_layout.addWidget(self.new_ann_btn)
-        button_layout.addWidget(self.cancel_ann_btn)
         button_layout.addWidget(self.breakpoint_btn)
         vlayout.addLayout(button_layout)
         return vlayout
+
+    def _create_button_group(self):
+        event_list = self.manager.get_event_list()
+        v_layout = QVBoxLayout()
+        self.btn_group = QButtonGroup(self)
+        self.event_btn_mapping = {}
+        v_layout.setContentsMargins(0, 10, 0, 10)
+        v_layout.setSpacing(20)
+        for event in event_list:
+            button = QPushButton(event, self)
+            button.setStyleSheet(self.btn_idl_stylesheet)
+            button.setFixedHeight(50)
+            self.event_btn_mapping[event] = button
+            self.btn_group.addButton(button)
+            v_layout.addWidget(button)
+        v_layout.addStretch()
+        return v_layout
 
     def _create_tool_bar(self):
         toolbar = QToolBar("top tool bar")
@@ -494,25 +506,13 @@ class AnnWindow(QMainWindow):
             self.update_breakpoint_table(self.manager.breakpoints)
 
         if button_update:
-            new_enable = True
-            cancel_enable = True
-
-            if self.manager.state == self.manager.State.IDLE:
-                cancel_enable = False
-            elif self.manager.state == self.manager.State.NEW:
-                new_enable = True
-
-            if not new_enable:
-                self.new_ann_btn.setStyleSheet("background-color: rgb(200, 0, 0)")
-            else:
-                if self.manager.state == self.manager.State.IDLE:
-                    self.new_ann_btn.setStyleSheet("background-color: palette(window)")
-                elif self.manager.state == self.manager.State.NEW:
-                    self.new_ann_btn.setStyleSheet("background-color: rgb(3, 252, 107)")
-
-            self.new_ann_btn.setEnabled(new_enable)
-            self.cancel_ann_btn.setEnabled(cancel_enable)
-
+            for event, btn in self.event_btn_mapping.items():
+                btn: QPushButton
+                st = self.manager.get_event_btn_state(event)
+                if st == AnnManager.State.IDLE:
+                    btn.setStyleSheet(self.btn_idl_stylesheet)
+                else:
+                    btn.setStyleSheet(self.btn_new_stylesheet)
         # set focus to centralwidget(otherwise the keyboard won't work)
         # TODO: figure out why
         self.centralWidget().setFocus()
@@ -613,17 +613,6 @@ class AnnWindow(QMainWindow):
             pass
 
     @Slot()
-    def on_new_ann_btn_clicked(self):
-        event_name = self.event_name_combobox.currentText()
-        self.manager.toggle_new_event_annotation(event_name, self.manager.view_frame_id)
-        self.view_update_by_manager(ann_update=True, button_update=True)
-
-    @Slot()
-    def on_cancel_btn_clicked(self):
-        self.manager.cancel_new_event_annotation()
-        self.view_update_by_manager(button_update=True)
-
-    @Slot()
     def on_breakpoint_btn_clicked(self):
         self.manager.add_breakpoint(self.manager.view_frame_id)
         self.view_update_by_manager(breakpoint_update=True)
@@ -643,6 +632,11 @@ class AnnWindow(QMainWindow):
     @Slot()
     def on_save_ann_btn_clicked(self):
         self.manager.save_event_annotations()
+
+    @Slot()
+    def on_event_btn_clicked(self, btn: QPushButton):
+        self.manager.event_button_clicked(btn.text())
+        self.view_update_by_manager(button_update=True, ann_update=True)
 
     @Slot()
     def on_playrate_changed(self, rate):
@@ -679,10 +673,4 @@ class AnnWindow(QMainWindow):
     def keyReleaseEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Space:
             self.toggle()
-        elif event.key() == Qt.Key.Key_M:
-            if self.new_ann_btn.isEnabled():
-                self.on_new_ann_btn_clicked()
-        elif event.key() == Qt.Key.Key_C:
-            if self.cancel_ann_btn.isEnabled():
-                self.on_cancel_btn_clicked()
         return super().keyReleaseEvent(event)

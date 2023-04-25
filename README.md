@@ -15,7 +15,7 @@
 2. 变化事件不允许重叠。
 
 ## 标注工具使用说明
-需要在项目目录下新建`dataset`文件夹，事件标签放在`dataset/annotate/event`下。
+需要在项目目录下新建`dataset`文件夹，事件标签放在`dataset/annotate_event`下。
 
 标签文件名为：`<video_name>.txt`，每个标签为一行，格式为`标签名,起始帧,终止帧`。
 

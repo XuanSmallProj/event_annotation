@@ -207,7 +207,8 @@ class AnnManager:
         self.video_meta = VideoMetaData("", 0, 1)
         self.extract_origin_name = ""
         self.extract_index = 0
-        self.event_annotations = []  # Tuple[str, int, int]
+        self.event_annotations: List[Event] = []  # Event
+        self.event_annotations_by_group = {}
         self.breakpoints = []
         # id of the current frame shown on the screen
         self.view_frame_id = 0
@@ -218,17 +219,48 @@ class AnnManager:
         self.playrate = 1
 
         self.extract_meta = get_extract_meta()
-        self.event_meta, self.event_meta_overlap = self.read_event_meta()
+        self.event_meta, self.event_group_to_overlap = self.read_event_meta()
         self.event_name_to_group = {
             event: group for group, v in self.event_meta.items() for event in v.keys()
         }
 
-        print(self.event_meta)
-        print(self.event_meta_overlap)
-        print(self.event_name_to_group)
         self.event_btn_state = {}
         for k in self.event_name_to_group.keys():
             self.event_btn_state[k] = (self.State.IDLE, 0)
+
+    def is_event_allow_overlap(self, event):
+        group = self.event_name_to_group[event]
+        return self.event_group_to_overlap[group]
+
+    def get_event_annotations_by_group(self):
+        self.event_annotations_by_group = {}
+        for event in self.event_annotations:
+            group = self.event_name_to_group[event.name]
+            if group not in self.event_annotations_by_group:
+                self.event_annotations_by_group[group] = []
+            self.event_annotations_by_group[group].append(event)
+
+    def check_event_overlap_conflict(self):
+        for group, e_list in self.event_annotations_by_group.items():
+            if not self.event_group_to_overlap[group]:
+                for i in range(len(e_list)):
+                    start1, end1 = e_list[i].f0, e_list[i].f1
+                    for j in range(i+1, len(e_list)):
+                        start2, end2 = e_list[j].f0, e_list[j].f1
+                        if end1 >= start2 and end1 <= end2:
+                            return True
+                        if end2 >= start1 and end2 <= end1:
+                            return True
+        return False
+    
+    def check_inside_overlap(self):
+        for group, e_list in self.event_annotations_by_group.items():
+            if not self.event_group_to_overlap[group]:
+                for event in e_list:
+                    start, end = event.f0, event.f1
+                    if self.view_frame_id >= start and self.view_frame_id <= end:
+                        return True
+        return False
 
     def get_event_list(self):
         return [k for _, v in self.event_meta.items() for k in v.keys()]
@@ -277,6 +309,7 @@ class AnnManager:
         self.event_annotations = self.parse_event_annotation_str(
             self.read_event_annotation_str(self.video_meta.name)
         )
+        self.get_event_annotations_by_group()
         self.breakpoints = []
         self.new_start_frame_id = 0
         self.view_frame_id = 0
@@ -291,6 +324,7 @@ class AnnManager:
             e = Event(name, type)
             e.f0, e.f1 = start_id, end_id
             self.event_annotations.append(e)
+        self.get_event_annotations_by_group()
 
     def remove_event_annotations(self, indexes):
         self.is_dirty = True
@@ -301,6 +335,7 @@ class AnnManager:
             self.event_annotations = [
                 ann for i, ann in enumerate(self.event_annotations) if i not in indexes
             ]
+        self.get_event_annotations_by_group()
 
     def sort_event_annotations(self):
         self.event_annotations = sort_events(self.event_annotations)
@@ -334,6 +369,7 @@ class AnnManager:
         path = os.path.join("dataset", "annotate_event", self.video_meta.name + ".txt")
         sorted_annotations = sort_events(self.event_annotations)
         content = "\n".join([str(e) for e in sorted_annotations])
+        assert not self.check_event_overlap_conflict()
         with open(path, "w") as f:
             f.write(content)
         self.is_dirty = False
@@ -353,6 +389,7 @@ class AnnWindow(QMainWindow):
 
         self.btn_idl_stylesheet = r"background-color: rgb(240, 248, 255)"
         self.btn_new_stylesheet = r"background-color: rgb(3, 252, 107)"
+        self.btn_overlap_stylesheet = r"background-color: palette(window)"
 
         self._create_tool_bar()
         self.status_bar = self.statusBar()
@@ -527,6 +564,7 @@ class AnnWindow(QMainWindow):
             self.update_breakpoint_table(self.manager.breakpoints)
 
         if button_update:
+            inside_overlap = self.manager.check_inside_overlap()
             for event, btn in self.event_btn_mapping.items():
                 btn: QPushButton
                 st = self.manager.get_event_btn_state(event)
@@ -534,6 +572,12 @@ class AnnWindow(QMainWindow):
                     btn.setStyleSheet(self.btn_idl_stylesheet)
                 else:
                     btn.setStyleSheet(self.btn_new_stylesheet)
+                btn.setEnabled(True)
+                
+                if not self.manager.is_event_allow_overlap(event) and inside_overlap:
+                    btn.setStyleSheet(self.btn_overlap_stylesheet)
+                    btn.setEnabled(False)
+                    
         # set focus to centralwidget(otherwise the keyboard won't work)
         # TODO: figure out why
         self.centralWidget().setFocus()

@@ -1,0 +1,18 @@
+{
+    "变化事件": {
+        "_overlap": false,
+        "观众/工作人员镜头": "interval",
+        "裁判/教练/运动员特写": "interval",
+        "其它画面（广告/计分牌）": "interval",
+        "实际录像回放": "interval",
+        "动画回放": "interval",
+        "全景镜头": "interval"
+    },
+    "镜头情况": {
+        "_overlap": true,
+        "视角切换": "shot",
+        "镜头移动": "interval",
+        "镜头拉远": "interval",
+        "镜头拉近": "interval"
+    }
+}

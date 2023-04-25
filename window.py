@@ -31,6 +31,7 @@ import math
 from extract import get_extract_meta, extract_name_split
 import json
 
+
 class BufferItem:
     def __init__(self, init_id, rate, frames, shm) -> None:
         self.init_id = init_id
@@ -217,13 +218,20 @@ class AnnManager:
         self.playrate = 1
 
         self.extract_meta = get_extract_meta()
-        self.event_meta = self.read_event_meta()
+        self.event_meta, self.event_meta_overlap = self.read_event_meta()
+        self.event_name_to_group = {
+            event: group for group, v in self.event_meta.items() for event in v.keys()
+        }
+
+        print(self.event_meta)
+        print(self.event_meta_overlap)
+        print(self.event_name_to_group)
         self.event_btn_state = {}
-        for k in self.event_meta.keys():
+        for k in self.event_name_to_group.keys():
             self.event_btn_state[k] = (self.State.IDLE, 0)
-    
+
     def get_event_list(self):
-        return [k for k in self.event_meta.keys()]
+        return [k for _, v in self.event_meta.items() for k in v.keys()]
 
     def get_event_btn_state(self, event):
         return self.event_btn_state[event][0]
@@ -232,10 +240,14 @@ class AnnManager:
         with open("event.json", "r") as f:
             config = json.load(f)
         res = {}
+        overlap_res = {}
         for k, v in config.items():
+            res[k] = {}
+            overlap_res[k] = v["_overlap"]
             for name, type in v.items():
-                res[name] = Event(name, type)
-        return res
+                if name != "_overlap":
+                    res[k][name] = Event(name, type)
+        return res, overlap_res
 
     def read_event_annotation_str(self, vname):
         path = os.path.join("dataset", "annotate_event", vname + ".txt")
@@ -244,12 +256,12 @@ class AnnManager:
                 return f.read()
         else:
             with open(path, "w") as f:
-                f.write('')
+                f.write("")
             return ""
-    
+
     def parse_event_annotation_str(self, s: str):
         res = []
-        for line in s.split('\n'):
+        for line in s.split("\n"):
             if line:
                 e = Event.parse(line)
                 if e.name in self.event_meta:
@@ -262,7 +274,9 @@ class AnnManager:
 
     def open(self, meta_data):
         self.video_meta = meta_data
-        self.event_annotations = self.parse_event_annotation_str(self.read_event_annotation_str(self.video_meta.name))
+        self.event_annotations = self.parse_event_annotation_str(
+            self.read_event_annotation_str(self.video_meta.name)
+        )
         self.breakpoints = []
         self.new_start_frame_id = 0
         self.view_frame_id = 0
@@ -271,8 +285,9 @@ class AnnManager:
 
     def create_event_annotations(self, name, start_id, end_id):
         self.is_dirty = True
-        if name in self.event_meta:
-            type = self.event_meta[name].type
+        if name in self.event_name_to_group:
+            group = self.event_name_to_group[name]
+            type = self.event_meta[group][name].type
             e = Event(name, type)
             e.f0, e.f1 = start_id, end_id
             self.event_annotations.append(e)
@@ -291,14 +306,20 @@ class AnnManager:
         self.event_annotations = sort_events(self.event_annotations)
 
     def event_button_clicked(self, event_name):
-        if event_name in self.event_meta:
+        if event_name in self.event_name_to_group:
+            group = self.event_name_to_group[event_name]
             st, frame = self.event_btn_state[event_name]
-            type = self.event_meta[event_name].type
+            type = self.event_meta[group][event_name].type
             if st == self.State.IDLE:
                 if type == "shot":
-                    self.create_event_annotations(event_name, self.view_frame_id, self.view_frame_id)
+                    self.create_event_annotations(
+                        event_name, self.view_frame_id, self.view_frame_id
+                    )
                 elif type == "interval":
-                    self.event_btn_state[event_name] = self.State.NEW, self.view_frame_id
+                    self.event_btn_state[event_name] = (
+                        self.State.NEW,
+                        self.view_frame_id,
+                    )
                 else:
                     raise ValueError(f"{type} not implemented")
             elif st == self.State.NEW:
@@ -573,7 +594,7 @@ class AnnWindow(QMainWindow):
 
     def update_ann_table(self, annotations):
         self._update_table(self.annotation_table, annotations)
-    
+
     def update_breakpoint_table(self, breakpoints):
         self._update_table(self.breakpoint_table, breakpoints)
 
@@ -600,9 +621,7 @@ class AnnWindow(QMainWindow):
         self.manager.open(meta_data)
         self.slider_change_config(meta_data.total_frame)
         self.playrate_combobox.setCurrentText("1")
-        self.view_update_by_manager(
-            ann_update=True, button_update=True
-        )
+        self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot(QTableWidgetItem)
     def on_double_click_table_item(self, item: QTableWidgetItem):

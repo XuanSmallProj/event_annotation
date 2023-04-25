@@ -3,3 +3,5 @@ dataset/
 *.xlsx
 __pycache__
 .DS_Store
+extract.json
+full_list.txt

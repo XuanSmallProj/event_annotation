@@ -3,7 +3,7 @@
 ## 环境
 当前目录下有含MultiSports标注信息的`match_matched_clips.csv`文件，并且有`dataset/annotate`文件夹。
 
-依赖：PySide6，pandas，numpy, cv2
+依赖：PySide6,panda,numpy,cv2
 
 ## 标注说明
 

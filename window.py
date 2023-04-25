@@ -296,8 +296,9 @@ class AnnManager:
         for line in s.split("\n"):
             if line:
                 e = Event.parse(line)
-                if e.name in self.event_meta:
-                    e.type = self.event_meta[e.name].type
+                if e.name in self.event_name_to_group:
+                    group = self.event_name_to_group[e.name]
+                    e.type = self.event_meta[group][e.name].type
                     res.append(e)
         return res
 

@@ -248,10 +248,11 @@ class AnnManager:
         return group.overlap
 
     def check_event_overlap_conflict(self):
-        for e in self.event_annotations:
+        for i, e in enumerate(self.event_annotations):
             group_e, _ = self._get_event_group_type(e)
             if not group_e.overlap:
-                for e2 in self.event_annotations:
+                for j in range(i + 1, len(self.event_annotations)):
+                    e2 = self.event_annotations[j]
                     group_e2, _ = self._get_event_group_type(e2)
                     if group_e2.group_name == group_e.group_name:
                         if e.f1 >= e2.f0 and e.f1 <= e2.f1:
@@ -260,12 +261,21 @@ class AnnManager:
                             return True
         return False
     
-    def check_inside_overlap(self):
+    def get_disabled_events(self):
+        """
+        有两种情况事件会被禁止使用:
+        1. 事件所属group中有另一事件包含当前帧
+        2. 有同名事件包含当前帧
+        """
+        disabled_events = set()
         for e in self.event_annotations:
             group, _ = self._get_event_group_type(e)
-            if not group.overlap and e.f0 <= self.view_frame_id and e.f1 >= self.view_frame_id:
-                return True
-        return False
+            if e.f0 <= self.view_frame_id and e.f1 >= self.view_frame_id:
+                disabled_events.add(e.name)
+                if not group.overlap:
+                    for e_in_group in group.event_name:
+                        disabled_events.add(e_in_group)
+        return disabled_events
 
     def get_event_btn_state(self, event):
         return self.event_btn_state[event][0]
@@ -556,7 +566,7 @@ class AnnWindow(QMainWindow):
             self.update_breakpoint_table(self.manager.breakpoints)
 
         if button_update:
-            inside_overlap = self.manager.check_inside_overlap()
+            disabled_events = self.manager.get_disabled_events()
             for event, btn in self.event_btn_mapping.items():
                 btn: QPushButton
                 st = self.manager.get_event_btn_state(event)
@@ -566,7 +576,7 @@ class AnnWindow(QMainWindow):
                     btn.setStyleSheet(self.btn_new_stylesheet)
                 btn.setEnabled(True)
                 
-                if not self.manager.is_event_allow_overlap(event) and inside_overlap:
+                if event in disabled_events:
                     btn.setStyleSheet(self.btn_overlap_stylesheet)
                     btn.setEnabled(False)
                     

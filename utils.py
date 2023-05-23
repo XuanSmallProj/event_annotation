@@ -121,7 +121,7 @@ class Event:
 def sort_events(events, ascend=True):
     def cmp(e0, e1):
         if e0.f0 == e1.f0:
-            return e0.f1 < e1.f1
+            return e0.f1 - e1.f1
         else:
-            return e0.f0 < e1.f0
+            return e0.f0 - e1.f0
     return sorted(events, key=functools.cmp_to_key(cmp), reverse=(not ascend))

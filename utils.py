@@ -125,3 +125,21 @@ def sort_events(events, ascend=True):
         else:
             return e0.f0 - e1.f0
     return sorted(events, key=functools.cmp_to_key(cmp), reverse=(not ascend))
+
+
+class EventGroup:
+    def __init__(self, group_name, meta) -> None:
+        self.group_name = group_name
+        self.overlap = meta["_overlap"]
+        self.event_name = []
+        self.event_type = []
+        for k, v in meta.items():
+            if not k.startswith("_"):
+                self.event_name.append(k)
+                self.event_type.append(v)
+
+    def get_type(self, name):
+        for n, tp in zip(self.event_name, self.event_type):
+            if n == name:
+                return tp
+        return None

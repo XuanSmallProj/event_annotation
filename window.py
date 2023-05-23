@@ -23,13 +23,14 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import VideoMetaData, sort_events, Event
+from utils import VideoMetaData, sort_events, Event, EventGroup
 from enum import IntEnum
 from typing import *
 import os
 import math
 from extract import get_extract_meta, extract_name_split
 import json
+from typing import Dict, Union
 
 
 class BufferItem:
@@ -219,67 +220,63 @@ class AnnManager:
         self.playrate = 1
 
         self.extract_meta = get_extract_meta()
-        self.event_meta, self.event_group_to_overlap = self.read_event_meta()
-        self.event_name_to_group = {
-            event: group for group, v in self.event_meta.items() for event in v.keys()
-        }
+        self.event_groups = self.read_event_meta()
 
         self.event_btn_state = {}
-        for k in self.event_name_to_group.keys():
+        for k in self.get_event_list():
             self.event_btn_state[k] = (self.State.IDLE, 0)
 
-    def is_event_allow_overlap(self, event):
-        group = self.event_name_to_group[event]
-        return self.event_group_to_overlap[group]
+    def get_event_list(self):
+        result = []
+        for group in self.event_groups.values():
+            result.extend(group.event_name)
+        return result
 
-    def get_event_annotations_by_group(self):
-        self.event_annotations_by_group = {}
-        for event in self.event_annotations:
-            group = self.event_name_to_group[event.name]
-            if group not in self.event_annotations_by_group:
-                self.event_annotations_by_group[group] = []
-            self.event_annotations_by_group[group].append(event)
+    def _get_event_group_type(self, event: Union[Event, str]):
+        if isinstance(event, str):
+            name = event
+        else:
+            name = event.name
+        for _, v in self.event_groups.items():
+            tp = v.get_type(name)
+            if tp:
+                return v, tp
+        raise ValueError(f"invalid event: {name}")
+
+    def is_event_allow_overlap(self, event):
+        group, _ = self._get_event_group_type(event)
+        return group.overlap
 
     def check_event_overlap_conflict(self):
-        for group, e_list in self.event_annotations_by_group.items():
-            if not self.event_group_to_overlap[group]:
-                for i in range(len(e_list)):
-                    start1, end1 = e_list[i].f0, e_list[i].f1
-                    for j in range(i+1, len(e_list)):
-                        start2, end2 = e_list[j].f0, e_list[j].f1
-                        if end1 >= start2 and end1 <= end2:
+        for e in self.event_annotations:
+            group_e, _ = self._get_event_group_type(e)
+            if not group_e.overlap:
+                for e2 in self.event_annotations:
+                    group_e2, _ = self._get_event_group_type(e2)
+                    if group_e2.group_name == group_e.group_name:
+                        if e.f1 >= e2.f0 and e.f1 <= e2.f1:
                             return True
-                        if end2 >= start1 and end2 <= end1:
+                        if e2.f1 >= e.f0 and e2.f1 <= e.f1:
                             return True
         return False
     
     def check_inside_overlap(self):
-        for group, e_list in self.event_annotations_by_group.items():
-            if not self.event_group_to_overlap[group]:
-                for event in e_list:
-                    start, end = event.f0, event.f1
-                    if self.view_frame_id >= start and self.view_frame_id <= end:
-                        return True
+        for e in self.event_annotations:
+            group, _ = self._get_event_group_type(e)
+            if not group.overlap and e.f0 <= self.view_frame_id and e.f1 >= self.view_frame_id:
+                return True
         return False
-
-    def get_event_list(self):
-        return [k for _, v in self.event_meta.items() for k in v.keys()]
 
     def get_event_btn_state(self, event):
         return self.event_btn_state[event][0]
 
-    def read_event_meta(self):
+    def read_event_meta(self) -> Dict[str, EventGroup]:
         with open("event.json", "r") as f:
             config = json.load(f)
-        res = {}
-        overlap_res = {}
+        event_groups = {}
         for k, v in config.items():
-            res[k] = {}
-            overlap_res[k] = v["_overlap"]
-            for name, type in v.items():
-                if name != "_overlap":
-                    res[k][name] = Event(name, type)
-        return res, overlap_res
+            event_groups[k] = EventGroup(k, v)
+        return event_groups
 
     def read_event_annotation_str(self, vname):
         path = os.path.join("dataset", "annotate_event", vname + ".txt")
@@ -293,39 +290,22 @@ class AnnManager:
 
     def parse_event_annotation_str(self, s: str):
         res = []
+        events_set = set(self.get_event_list())
         for line in s.split("\n"):
             if line:
                 e = Event.parse(line)
-                if e.name in self.event_name_to_group:
-                    group = self.event_name_to_group[e.name]
-                    e.type = self.event_meta[group][e.name].type
+                if e.name in events_set:
+                    _, tp = self._get_event_group_type(e)
+                    e.type = tp
                     res.append(e)
         return res
 
-    def valid(self):
-        return len(self.video_meta.name) > 0
-
-    def open(self, meta_data):
-        self.video_meta = meta_data
-        self.event_annotations = self.parse_event_annotation_str(
-            self.read_event_annotation_str(self.video_meta.name)
-        )
-        self.get_event_annotations_by_group()
-        self.breakpoints = []
-        self.new_start_frame_id = 0
-        self.view_frame_id = 0
-        self.is_dirty = False
-        self.playrate = 1
-
     def create_event_annotations(self, name, start_id, end_id):
         self.is_dirty = True
-        if name in self.event_name_to_group:
-            group = self.event_name_to_group[name]
-            type = self.event_meta[group][name].type
-            e = Event(name, type)
-            e.f0, e.f1 = start_id, end_id
-            self.event_annotations.append(e)
-        self.get_event_annotations_by_group()
+        _, type = self._get_event_group_type(name)
+        e = Event(name, type)
+        e.f0, e.f1 = start_id, end_id
+        self.event_annotations.append(e)
 
     def remove_event_annotations(self, indexes):
         self.is_dirty = True
@@ -336,31 +316,42 @@ class AnnManager:
             self.event_annotations = [
                 ann for i, ann in enumerate(self.event_annotations) if i not in indexes
             ]
-        self.get_event_annotations_by_group()
 
     def sort_event_annotations(self):
         self.event_annotations = sort_events(self.event_annotations)
 
+    def valid(self):
+        return len(self.video_meta.name) > 0
+
+    def open(self, meta_data):
+        self.video_meta = meta_data
+        self.event_annotations = self.parse_event_annotation_str(
+            self.read_event_annotation_str(self.video_meta.name)
+        )
+        self.breakpoints = []
+        self.new_start_frame_id = 0
+        self.view_frame_id = 0
+        self.is_dirty = False
+        self.playrate = 1
+
     def event_button_clicked(self, event_name):
-        if event_name in self.event_name_to_group:
-            group = self.event_name_to_group[event_name]
-            st, frame = self.event_btn_state[event_name]
-            type = self.event_meta[group][event_name].type
-            if st == self.State.IDLE:
-                if type == "shot":
-                    self.create_event_annotations(
-                        event_name, self.view_frame_id, self.view_frame_id
-                    )
-                elif type == "interval":
-                    self.event_btn_state[event_name] = (
-                        self.State.NEW,
-                        self.view_frame_id,
-                    )
-                else:
-                    raise ValueError(f"{type} not implemented")
-            elif st == self.State.NEW:
-                self.create_event_annotations(event_name, frame, self.view_frame_id)
-                self.event_btn_state[event_name] = self.State.IDLE, 0
+        _, type = self._get_event_group_type(event_name)
+        st, frame = self.event_btn_state[event_name]
+        if st == self.State.IDLE:
+            if type == "shot":
+                self.create_event_annotations(
+                    event_name, self.view_frame_id, self.view_frame_id
+                )
+            elif type == "interval":
+                self.event_btn_state[event_name] = (
+                    self.State.NEW,
+                    self.view_frame_id,
+                )
+            else:
+                raise ValueError(f"{type} not implemented")
+        elif st == self.State.NEW:
+            self.create_event_annotations(event_name, frame, self.view_frame_id)
+            self.event_btn_state[event_name] = self.State.IDLE, 0
 
     def cancel_new_event_annotation(self):
         if self.state == self.State.NEW:

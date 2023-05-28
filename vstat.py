@@ -1,13 +1,14 @@
 import os
-import argparse
-import sys
 import utils
 import clip
-import subprocess
 import json
 from typing import Tuple
 
+
 def get_ann_lines(video_name):
+    """
+    获得annotate目录下标签的数目总和
+    """
     cnt = 0
     with open(f"dataset/annotate/{video_name}.txt") as f:
         for line in f.readlines():
@@ -15,9 +16,10 @@ def get_ann_lines(video_name):
                 cnt += 1
     return cnt
 
+
 def get_ann_video_list() -> Tuple[list, list]:
     """
-    Videos with annotation
+    获得带有annotate的video列表, 同时返回是否有足够多的annotation的video列表
     """
     annotate_path = "dataset/annotate"
     files = os.listdir(annotate_path)
@@ -31,9 +33,10 @@ def get_ann_video_list() -> Tuple[list, list]:
                 completed.append(video_name)
     return videos, completed
 
+
 def get_mp4_list():
     """
-    All mp4 files under dataset/
+    获得dataset目录下mp4的文件列表
     """
     dataset_path = "dataset/"
     videos = []
@@ -42,12 +45,12 @@ def get_mp4_list():
             videos.append(utils.get_video_name(file))
     return videos
 
-def download_sh(video):
-    th = subprocess.run(f"./download_expect.sh {video}", shell=True)
-    
 
-def get_clip_list():
-    football_list = clip.get_clip_videos("football")
+def get_clip_list(category="football"):
+    """
+    获得原MultiSports里有标签的类别为category的视频列表
+    """
+    football_list = clip.get_clip_videos(category)
     last_video = None
     result = []
     for vname in football_list:
@@ -57,7 +60,11 @@ def get_clip_list():
         result.append(vname)
     return result
 
+
 def get_full_list():
+    """
+    获取所有视频的完整列表(无论是否已经标注, 无论是否在Multisports数据集中)(需要有full_list)
+    """
     videos = []
     with open("full_list.txt") as f:
         lines = f.readlines()
@@ -66,67 +73,38 @@ def get_full_list():
                 videos.append(utils.get_video_name(line))
     return videos
 
-def download(cnt, from_full_list=False):
-    print(f"Download {cnt} videos")
-    video_has, _ = get_ann_video_list()
-    video_has = set(video_has)
-    mp4_has = set(get_mp4_list())
-    if from_full_list:
-        clip_list = get_full_list()
-    else:
-        clip_list = get_clip_list()
 
-    if os.path.exists("dataset/download.json"):
-        with open("dataset/download.json", "r") as f:
-            downloaded = json.load(f)
-    else:
-        downloaded = {"videos": []}
-
-    old_cwd = os.getcwd()
-    dataset_path = os.path.join(os.path.dirname(__file__), "dataset")
-    os.chdir(dataset_path)
-    for clipname in clip_list:
-        if cnt <= 0:
-            break
-        if clipname not in video_has and clipname not in mp4_has:
-            download_sh(clipname)
-            downloaded["videos"].append(clipname)
-            cnt -= 1
-    os.chdir(old_cwd)
-
-    with open("dataset/download.json", "w") as f:
-        json.dump(downloaded, f)
-
-def remove():
-    if os.path.exists("dataset/download.json"):
-        with open("dataset/download.json", "r") as f:
-            downloaded = json.load(f)
-    else:
-        downloaded = None
-    _, video_completed = get_ann_video_list()
-    video_completed = set(video_completed)
-    mp4_list = get_mp4_list()
-    for mp4 in mp4_list:
-        mp4_path = f"dataset/{mp4}.mp4"
-        if mp4 in video_completed:
-            print(f"remove {mp4_path}")
-            os.remove(mp4_path)
-            if downloaded:
-                new_videos = [video for video in downloaded["videos"] if video != mp4]
-                downloaded["videos"] = new_videos
-
-    # todo: save donwloaded
-    if downloaded:
-        with open("dataset/download.json", "w") as f:
-            json.dump(downloaded, f)
+def get_extract_meta():
+    try:
+        with open("extract.json", "r") as f:
+            return json.load(f)
+    except:
+        return {}
 
 
-def statatistic():
+def save_extract_meta(meta):
+    with open("extract.json", "w") as f:
+        json.dump(meta, f)
+
+
+def get_without_extract(meta=None):
+    if meta is None:
+        meta = get_extract_meta()
+    ann_list, _ = get_ann_video_list()
+    to_download = []
+
+    for v in ann_list:
+        if v not in meta:
+            to_download.append(v)
+    return to_download
+
+
+def statistic():
     clip_videos = list(clip.get_clip_videos("football"))
     ann_videos, completed = get_ann_video_list()
     mp4_list = get_mp4_list()
     full_list = get_full_list()
-    
+
     print(f"Total videos: {len(full_list)}")
     print(f"Total video clip with MultiSports annotation: {len(clip_videos)}")
     print(f"Complete {len(completed)} videos")
@@ -138,16 +116,4 @@ def statatistic():
 
 
 if __name__ == "__main__":
-    clip.init_clip("match_matched_clips.csv")
-    parser = argparse.ArgumentParser("statistics")
-    parser.add_argument("-d", "--download", type=int)
-    parser.add_argument("-r", "--remove", action="store_true")
-    parser.add_argument("-s", "--statistic", action="store_true")
-    opts = parser.parse_args()
-
-    if opts.statistic:
-        statatistic()
-    if opts.remove:
-        remove()
-    if opts.download:
-        download(opts.download, from_full_list=True)
+    statistic()

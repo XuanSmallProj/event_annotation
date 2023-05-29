@@ -408,12 +408,15 @@ class AnnManager:
 
 class AnnWindow(QMainWindow):
     class AnnTableWidget(QTableWidget):
-        def __init__(self, parent=None):
+        def __init__(self, tables, parent=None):
             super().__init__(parent)
-            
-        def focusOutEvent(self, event):
-            self.clearSelection()
-            super().focusOutEvent(event)
+            self.tables = tables
+        
+        def focusInEvent(self, event) -> None:
+            for table in self.tables:
+                if not (table is self):
+                    table.clearSelection()
+            return super().focusInEvent(event)
 
     def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
         super().__init__()
@@ -534,7 +537,7 @@ class AnnWindow(QMainWindow):
         ann_vlayout.addLayout(button_layout)
         self.annotation_tables = []
         def new_ann_table():
-            table = self.AnnTableWidget(self)
+            table = self.AnnTableWidget(self.annotation_tables, self)
             self.annotation_tables.append(table)
             table.setColumnCount(3)
             table.setHorizontalHeaderLabels(["event", "start", "end"])

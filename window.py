@@ -28,7 +28,6 @@ from enum import IntEnum
 from typing import *
 import os
 import math
-from extract import get_extract_meta, extract_name_split
 import json
 from typing import Dict, Union
 
@@ -219,7 +218,6 @@ class AnnManager:
         self.navigate_repeat = 0
         self.playrate = 1
 
-        self.extract_meta = get_extract_meta()
         self.event_groups = self.read_event_meta()
 
         self.event_btn_state = {}

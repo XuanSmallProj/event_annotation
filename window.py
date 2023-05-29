@@ -227,6 +227,9 @@ class AnnManager:
         for k in self.get_event_list():
             self.event_btn_state[k] = (self.State.IDLE, 0)
 
+    def get_current_time(self):
+        return self.video_meta.frame_to_time(self.view_frame_id)
+
     def get_event_list(self):
         result = []
         for group in self.event_groups.values():
@@ -596,7 +599,7 @@ class AnnWindow(QMainWindow):
         breakpoint_update=False,
     ):
         if status_update:
-            msg = f"{self.manager.video_meta.name} {self.manager.view_frame_id}"
+            msg = f"{self.manager.video_meta.name} {self.manager.view_frame_id} {self.manager.get_current_time()}"
             self.status_bar.showMessage(msg)
 
         if ann_update:

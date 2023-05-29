@@ -454,6 +454,7 @@ class AnnWindow(QMainWindow):
         self.slider.sliderPressed.connect(self.slider_pressed)
         for table in self.annotation_tables:
             table.itemDoubleClicked.connect(self.on_double_click_table_item)
+        self.breakpoint_table.itemDoubleClicked.connect(self.on_double_click_table_item)
 
         self.breakpoint_btn.clicked.connect(self.on_breakpoint_btn_clicked)
 

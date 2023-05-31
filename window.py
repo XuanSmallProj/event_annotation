@@ -282,8 +282,8 @@ class AnnManager:
     def get_event_btn_state(self, event):
         return self.event_btn_state[event][0]
 
-    def read_event_meta(self) -> Tuple[Dict[str, EventGroup], int]:
-        with open("event.json", "r") as f:
+    def read_event_meta(self) -> Dict[str, EventGroup]:
+        with open("event.json", "r", encoding="utf-8") as f:
             config = json.load(f)
         event_groups = {}
         max_table_id = 0
@@ -295,10 +295,10 @@ class AnnManager:
     def read_event_annotation_str(self, vname):
         path = os.path.join("dataset", "annotate_event", vname + ".txt")
         if os.path.exists(path):
-            with open(path, "r") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return f.read()
         else:
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 f.write("")
             return ""
 
@@ -392,7 +392,7 @@ class AnnManager:
         sorted_annotations = sort_events(self.event_annotations)
         content = "\n".join([str(e) for e in sorted_annotations])
         assert not self.check_event_overlap_conflict()
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         self.is_dirty = False
 

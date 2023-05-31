@@ -30,7 +30,7 @@ def remove_mp4_with_ann():
     Remove mp4 with annotations
     """
     if os.path.exists("dataset/download.json"):
-        with open("dataset/download.json", "r") as f:
+        with open("dataset/download.json", "r", encoding="utf-8") as f:
             downloaded = json.load(f)
     else:
         downloaded = None
@@ -48,7 +48,7 @@ def remove_mp4_with_ann():
 
     # todo: save donwloaded
     if downloaded:
-        with open("dataset/download.json", "w") as f:
+        with open("dataset/download.json", "w", encoding="utf-8") as f:
             json.dump(downloaded, f)
 
 
@@ -63,7 +63,7 @@ def download_without_ann(cnt, from_full_list=False):
         clip_list = get_clip_list()
 
     if os.path.exists("dataset/download.json"):
-        with open("dataset/download.json", "r") as f:
+        with open("dataset/download.json", "r", encoding="utf-8") as f:
             downloaded = json.load(f)
     else:
         downloaded = {"videos": []}
@@ -80,7 +80,7 @@ def download_without_ann(cnt, from_full_list=False):
             cnt -= 1
     os.chdir(old_cwd)
 
-    with open("dataset/download.json", "w") as f:
+    with open("dataset/download.json", "w", encoding="utf-8") as f:
         json.dump(downloaded, f)
 
 
@@ -108,7 +108,7 @@ def extract(v, meta=None):
     if meta is None:
         meta = get_extract_meta()
 
-    with open(f"dataset/annotate/{v}.txt") as f:
+    with open(f"dataset/annotate/{v}.txt", encoding="utf-8") as f:
         s = f.read()
         anns = annotations_from_str(s)
     info = {}

@@ -108,7 +108,7 @@ class Thread(QThread):
         self.view_last_to_show = seek_id
         for item in self.buffer:
             item: BufferItem
-            self.frame_ack(self.v_id, item.shm_id, item.frame_cnt)
+            self.frame_ack(self.v_id, item.shm_id + item.cursor, item.frame_cnt - item.cursor)
         self.buffer = []
         self.q_cmd.put(Msg(msgtp.SEEK, self.v_id, seek_id), block=False)
 

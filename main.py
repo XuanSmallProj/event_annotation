@@ -29,6 +29,8 @@ def main():
     p_window = mp.Process(target=fn_proc_window, args=(q_frame, q_cmd, shm_arr))
     p_video.start()
     p_window.start()
+    p_video.join()
+    p_window.join()
 
 
 if __name__ == "__main__":

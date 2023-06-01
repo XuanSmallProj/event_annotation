@@ -30,11 +30,9 @@ import os
 import math
 import json
 from typing import Dict, Union
-import logging
 from multiprocessing import RawArray
 
 
-logging.basicConfig(level=logging.DEBUG)
 class BufferItem:
     def __init__(self, frame_id, rate, frame_cnt, shm_id) -> None:
         self.frame_id = frame_id
@@ -91,7 +89,6 @@ class Thread(QThread):
         self.paused = True
 
     def open(self, path):
-        logging.warn(f"view open {path}")
         self.pause(lag=False)
         self.q_cmd.put(Msg(msgtp.OPEN, self.v_id, path), block=False)
 
@@ -103,7 +100,6 @@ class Thread(QThread):
         self.q_cmd.put(Msg(msgtp.EXTEND, self.v_id, self.view_last_to_show), block=False)
 
     def seek(self, seek_id):
-        logging.debug(f"view seek: {seek_id}")
         self.view_frame_id = seek_id
         self.view_last_to_show = seek_id
         for item in self.buffer:
@@ -163,7 +159,6 @@ class Thread(QThread):
 
             if msg.type == msgtp.VIDEO_FRAMES:
                 v_id, frame_id, rate, shm_id, frame_cnt, arr_shape, arr_type = msg.data
-                logging.debug(f"view read_frames: {frame_id} {frame_cnt}, shm: {shm_id}")
                 if v_id == self.v_id:
                     assert self.shm_mat.dtype == arr_type and self.shm_mat.shape == arr_shape
                     if (len(self.buffer) == 0 and frame_id == self.view_frame_id) or (

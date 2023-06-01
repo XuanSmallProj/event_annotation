@@ -5,12 +5,9 @@ import numpy as np
 from utils import get_video_name, annotations_from_str, VideoMetaData
 import os
 import time
-import logging
-import mmap
 from multiprocessing import RawArray
 
 
-logging.basicConfig(level=logging.DEBUG)
 class Video:
     def __init__(self, q_video: Queue, q_cmd: Queue, shm_arr: RawArray) -> None:
         self.cap = None
@@ -66,8 +63,6 @@ class Video:
         shm_sliced = np.frombuffer(self.shm_arr, dtype='b')[:self.shm_cap*frame.nbytes]
         self.shm_mat = np.frombuffer(shm_sliced, dtype=frame.dtype).reshape((self.shm_cap, *frame.shape))
 
-        logging.debug(f"video open: {path} {self.shm_size} {self.shm_cap}")
-
         meta_data = VideoMetaData(path, self.total_frame, self.fps)
         self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, self.v_id, (self.v_id, self.shm_cap, frame.nbytes, frame.shape, frame.dtype, meta_data)), block=False)
 
@@ -97,7 +92,6 @@ class Video:
         elif cmd.type == msgtp.FRAME_ACK:
             shm_start, shm_len = cmd.data
             next_shm_id = (shm_start + shm_len) % self.shm_cap
-            logging.debug(f"view: frame_ack: {self.shm_begin} {self.shm_end} ({shm_start}, {next_shm_id})")
             assert shm_start == self.shm_end
             if shm_start == self.shm_end:
                 self.shm_end = next_shm_id
@@ -125,7 +119,6 @@ class Video:
             self.shm_begin = (self.shm_begin + 1) % self.shm_cap
             assert self.shm_begin != self.shm_end
 
-        logging.debug(f"video send_frames: {frame_id} {start_shm_id} {len(frames)} ({self.shm_begin}, {self.shm_end})")
         msg = Msg(msgtp.VIDEO_FRAMES, self.v_id, (self.v_id, frame_id, self.playrate, start_shm_id, len(frames), self.shm_mat.shape, self.shm_mat.dtype))
         self.q_video.put(msg, block=False)
 

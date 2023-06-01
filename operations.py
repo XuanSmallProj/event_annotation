@@ -275,4 +275,4 @@ def group_and_zip():
 
 
 if __name__ == "__main__":
-    group_and_zip()
+    extract_all()

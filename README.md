@@ -33,7 +33,7 @@ A/D：暂停时候进行后退/前进，连续按键会加速
 
 使用之前，将原来的完整视频放在`dataset/`目录下，将原来的视频标注放在`dataset/annotate`目录下（注意备份），并且新建`dataset/parts`目录。
 
-使用`python extract.py`即可启动视频截取功能，它会将`dataset`目录下的视频根据`dataset/annotate`目录下的标注进行截取，截取的视频保存在`dataset/parts`目录下，命名规则为`<video_name>_<id>.mp4`，`id`表示该片段是从这个视频中截取的第`id`个子片段。
+使用`python operations.py`即可启动视频截取功能，它会将`dataset`目录下的视频根据`dataset/annotate`目录下的标注进行截取，截取的视频保存在`dataset/parts`目录下，命名规则为`<video_name>_<id>.mp4`，`id`表示该片段是从这个视频中截取的第`id`个子片段。
 
 在截取完毕之后，工具会在项目目录下新建`extract.json`文件，里面保存了截取的片段在原视频中的起始和终止时间。
 

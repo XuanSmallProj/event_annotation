@@ -30,22 +30,24 @@ import os
 import math
 import json
 from typing import Dict, Union
+import logging
+from multiprocessing import RawArray
 
 
+logging.basicConfig(level=logging.DEBUG)
 class BufferItem:
-    def __init__(self, init_id, rate, frames, shm) -> None:
-        self.init_id = init_id
+    def __init__(self, frame_id, rate, frame_cnt, shm_id) -> None:
+        self.frame_id = frame_id
         self.rate = rate
-        self.shm = shm
-        self.shm_name = shm.name
-        self.frames = frames
+        self.frame_cnt = frame_cnt
+        self.shm_id = shm_id
         self.cursor = 0
 
     def last_frame_id(self):
-        return self.init_id + (len(self.frames) - 1) * self.rate
+        return self.frame_id + (self.frame_cnt - 1) * self.rate
 
     def expect_next_frame_id(self):
-        return self.init_id + len(self.frames) * self.rate
+        return self.frame_id + self.frame_cnt * self.rate
 
 
 class Thread(QThread):
@@ -54,10 +56,11 @@ class Thread(QThread):
 
     BASE_EXTENT_PACE = 6
 
-    def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue):
+    def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue, shm_arr: RawArray):
         super().__init__(parent=parent)
         self.q_frame = q_frame
         self.q_cmd = q_cmd
+        self.shm_arr = shm_arr
 
         self.q_view = q_view
 
@@ -72,12 +75,13 @@ class Thread(QThread):
         self.stopped = False
         self.paused = False
 
+        self.shm_cap = 1
+        self.shm_mat = None
+
+        self.v_id = 0
+
     def is_paused(self):
         return self.view_last_to_show < self.view_frame_id and self.paused
-
-    def open(self, path):
-        self.pause(lag=False)
-        self.q_cmd.put(Msg(msgtp.OPEN, path), block=False)
 
     def pause(self, lag):
         if lag:
@@ -86,22 +90,42 @@ class Thread(QThread):
             self.view_last_to_show = self.view_frame_id - 2
         self.paused = True
 
+    def open(self, path):
+        logging.warn(f"view open {path}")
+        self.pause(lag=False)
+        self.q_cmd.put(Msg(msgtp.OPEN, self.v_id, path), block=False)
+
     def play(self):
         self.view_last_to_show = (
             self.view_frame_id + self.BASE_EXTENT_PACE * self.view_playrate
         )
         self.paused = False
-        self.q_cmd.put(Msg(msgtp.EXTENT, self.view_last_to_show), block=False)
+        self.q_cmd.put(Msg(msgtp.EXTEND, self.v_id, self.view_last_to_show), block=False)
 
     def seek(self, seek_id):
+        logging.debug(f"view seek: {seek_id}")
         self.view_frame_id = seek_id
         self.view_last_to_show = seek_id
+        for item in self.buffer:
+            item: BufferItem
+            self.frame_ack(self.v_id, item.shm_id + item.cursor, item.frame_cnt - item.cursor)
         self.buffer = []
-        self.q_cmd.put(Msg(msgtp.SEEK, seek_id), block=False)
+        self.q_cmd.put(Msg(msgtp.SEEK, self.v_id, seek_id), block=False)
 
     def playrate(self, rate):
         self.view_playrate = rate
-        self.q_cmd.put(Msg(msgtp.PLAYRATE, rate), block=False)
+        self.q_cmd.put(Msg(msgtp.PLAYRATE, self.v_id, rate), block=False)
+    
+    def stop(self) -> None:
+        # GIL to protect it
+        self.stopped = True
+        self.q_cmd.put(Msg(msgtp.CLOSE, self.v_id, None), block=False)
+
+    def frame_ack(self, v_id, shm_start, shm_len):
+        self.q_cmd.put(Msg(msgtp.FRAME_ACK, v_id, (shm_start, shm_len)), block=False)
+
+    def open_ack(self, v_id):
+        self.q_cmd.put(Msg(msgtp.OPEN_ACK, v_id, None), block=False)
 
     def change_view_image(self, frame_id, frame):
         h, w, ch = frame.shape
@@ -138,24 +162,28 @@ class Thread(QThread):
             msg = self.q_frame.get(block=False)
 
             if msg.type == msgtp.VIDEO_FRAMES:
-                init_id, rate, shm_name, mat_shape, mat_dtype = msg.data
-                if (len(self.buffer) == 0 and init_id == self.view_frame_id) or (
-                    len(self.buffer) > 0
-                    and (self.buffer[-1].expect_next_frame_id() == init_id)
-                ):
-                    shm = shared_memory.SharedMemory(name=shm_name)
-                    frames = np.ndarray(mat_shape, dtype=mat_dtype, buffer=shm.buf)
-                    self.buffer.append(BufferItem(init_id, rate, frames, shm))
+                v_id, frame_id, rate, shm_id, frame_cnt, arr_shape, arr_type = msg.data
+                logging.debug(f"view read_frames: {frame_id} {frame_cnt}, shm: {shm_id}")
+                if v_id == self.v_id:
+                    assert self.shm_mat.dtype == arr_type and self.shm_mat.shape == arr_shape
+                    if (len(self.buffer) == 0 and frame_id == self.view_frame_id) or (
+                        len(self.buffer) > 0
+                        and (self.buffer[-1].expect_next_frame_id() == frame_id)
+                    ):
+                        self.buffer.append(BufferItem(frame_id, rate, frame_cnt, shm_id))
                 else:
-                    self.q_cmd.put(Msg(msgtp.CLOSE_SHM, shm_name), block=False)
+                    self.frame_ack(v_id, shm_id, frame_cnt)
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
-                video_meta = msg.data
+                self.v_id, self.shm_cap, nbytes, shape, dtype, video_meta = msg.data
+                shm_sliced = np.frombuffer(self.shm_arr, dtype='b')[:self.shm_cap*nbytes]
+                self.shm_mat = np.frombuffer(shm_sliced, dtype=dtype).reshape((self.shm_cap, *shape))
                 self.sig_open_video.emit(video_meta)
                 self.view_frame_id = 0
                 self.view_last_to_show = 0
                 self.view_playrate = 1
                 self.seek(0)
+                self.open_ack(self.v_id)
                 # self.play()
 
         except queue.Empty:
@@ -169,13 +197,15 @@ class Thread(QThread):
             and self.view_last_to_show >= self.view_frame_id
         ):
             item: BufferItem = self.buffer[0]
-            frame_id = item.init_id + item.cursor
-            self.change_view_image(frame_id, item.frames[item.cursor])
+            frame_id = item.frame_id + item.cursor
+            shm_id = (item.shm_id + item.cursor) % self.shm_cap
+            assert self.shm_mat.shape[0] == self.shm_cap
+            frame_content = self.shm_mat[shm_id].copy()
+            self.change_view_image(frame_id, frame_content)
             item.cursor += 1
-            if item.cursor >= len(item.frames):
+            self.frame_ack(self.v_id, shm_id, 1)
+            if item.cursor >= item.frame_cnt:
                 self.buffer.pop(0)
-                item.shm.close()
-                self.q_cmd.put(Msg(msgtp.CLOSE_SHM, item.shm_name), block=False)
 
             self.view_frame_id += item.rate
             self.last_update_t = cur_t
@@ -184,11 +214,6 @@ class Thread(QThread):
             thresh = self.BASE_EXTENT_PACE * self.view_playrate / 2
             if not self.paused and margin < thresh:
                 self.play()
-
-    def stop(self) -> None:
-        # GIL to protect it
-        self.stopped = True
-        self.q_cmd.put(Msg(msgtp.CLOSE, None), block=False)
 
     def run(self):
         while not self.stopped:
@@ -282,8 +307,8 @@ class AnnManager:
     def get_event_btn_state(self, event):
         return self.event_btn_state[event][0]
 
-    def read_event_meta(self) -> Tuple[Dict[str, EventGroup], int]:
-        with open("event.json", "r") as f:
+    def read_event_meta(self) -> Dict[str, EventGroup]:
+        with open("event.json", "r", encoding="utf-8") as f:
             config = json.load(f)
         event_groups = {}
         max_table_id = 0
@@ -295,10 +320,10 @@ class AnnManager:
     def read_event_annotation_str(self, vname):
         path = os.path.join("dataset", "annotate_event", vname + ".txt")
         if os.path.exists(path):
-            with open(path, "r") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return f.read()
         else:
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 f.write("")
             return ""
 
@@ -392,7 +417,7 @@ class AnnManager:
         sorted_annotations = sort_events(self.event_annotations)
         content = "\n".join([str(e) for e in sorted_annotations])
         assert not self.check_event_overlap_conflict()
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         self.is_dirty = False
 
@@ -419,10 +444,12 @@ class AnnWindow(QMainWindow):
                     table.clearSelection()
             return super().focusInEvent(event)
 
-    def __init__(self, q_frame: Queue, q_cmd: Queue) -> None:
+    def __init__(self, q_frame: Queue, q_cmd: Queue, shm_arr: RawArray) -> None:
         super().__init__()
         self.manager: AnnManager = AnnManager()
         self.setWindowTitle("Annotator")
+
+        self.shm_arr = shm_arr
 
         self.btn_idl_stylesheet = r"background-color: rgb(240, 248, 255)"
         self.btn_new_stylesheet = r"background-color: rgb(3, 252, 107)"
@@ -442,7 +469,7 @@ class AnnWindow(QMainWindow):
 
         self.view_update_by_manager(ann_update=True, button_update=True)
         self.q_view = Queue()
-        self.th = Thread(self, q_frame, q_cmd, self.q_view)
+        self.th = Thread(self, q_frame, q_cmd, self.q_view, self.shm_arr)
 
         self.setup_connection()
         self.th.start(self.th.Priority.NormalPriority)
@@ -627,16 +654,16 @@ class AnnWindow(QMainWindow):
         self.centralWidget().setFocus()
 
     def pause(self, lag):
-        self.q_view.put(Msg(msgtp.VIEW_PAUSE, lag), block=False)
+        self.q_view.put(Msg(msgtp.VIEW_PAUSE, -1, lag), block=False)
 
     def toggle(self):
-        self.q_view.put(Msg(msgtp.VIEW_TOGGLE, None), block=False)
+        self.q_view.put(Msg(msgtp.VIEW_TOGGLE, -1, None), block=False)
 
     def play(self):
-        self.q_view.put(Msg(msgtp.VIEW_PLAY, None), block=False)
+        self.q_view.put(Msg(msgtp.VIEW_PLAY, -1, None), block=False)
 
     def seek(self, frame_id):
-        self.q_view.put(Msg(msgtp.VIEW_SEEK, frame_id), block=False)
+        self.q_view.put(Msg(msgtp.VIEW_SEEK, -1, frame_id), block=False)
 
     @Slot()
     def view_open_video(self):
@@ -645,7 +672,31 @@ class AnnWindow(QMainWindow):
             return
         if self.show_save_dialog() < 0:
             return
-        self.q_view.put(Msg(msgtp.VIEW_OPEN, img_path), block=False)
+        self.q_view.put(Msg(msgtp.VIEW_OPEN, -1, img_path), block=False)
+
+    def navigate_back(self, frame):
+        if self.manager.video_meta.total_frame < 1:
+            return
+        next_frame = self.manager.view_frame_id
+        next_frame -= frame
+        next_frame = max(next_frame, 0)
+        self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, -1, next_frame))
+        self.view_update_by_manager(button_update=True)
+
+    def navigate_forward(self, frame):
+        if self.manager.video_meta.total_frame < 1:
+            return
+        next_frame = self.manager.view_frame_id
+        next_frame += frame
+        next_frame = min(next_frame, int(self.manager.video_meta.total_frame) - 1)
+        self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, -1, next_frame))
+        self.view_update_by_manager(button_update=True)
+
+    @Slot()
+    def on_playrate_changed(self, rate):
+        rate = int(rate)
+        self.manager.playrate = rate
+        self.q_view.put(Msg(msgtp.VIEW_PLAYRATE, -1, rate), block=False)
 
     @Slot(QImage)
     def set_frame(self, frame_id, image):
@@ -686,24 +737,6 @@ class AnnWindow(QMainWindow):
 
     def update_breakpoint_table(self, breakpoints):
         self._update_table(self.breakpoint_table, breakpoints)
-
-    def navigate_back(self, frame):
-        if self.manager.video_meta.total_frame < 1:
-            return
-        next_frame = self.manager.view_frame_id
-        next_frame -= frame
-        next_frame = max(next_frame, 0)
-        self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, next_frame))
-        self.view_update_by_manager(button_update=True)
-
-    def navigate_forward(self, frame):
-        if self.manager.video_meta.total_frame < 1:
-            return
-        next_frame = self.manager.view_frame_id
-        next_frame += frame
-        next_frame = min(next_frame, int(self.manager.video_meta.total_frame) - 1)
-        self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, next_frame))
-        self.view_update_by_manager(button_update=True)
 
     @Slot(VideoMetaData, list)
     def on_open_video(self, meta_data: VideoMetaData):
@@ -748,12 +781,6 @@ class AnnWindow(QMainWindow):
     def on_event_btn_clicked(self, btn: QPushButton):
         self.manager.event_button_clicked(btn.text())
         self.view_update_by_manager(button_update=True, ann_update=True)
-
-    @Slot()
-    def on_playrate_changed(self, rate):
-        rate = int(rate)
-        self.manager.playrate = rate
-        self.q_view.put(Msg(msgtp.VIEW_PLAYRATE, rate), block=False)
 
     def closeEvent(self, event) -> None:
         if self.show_save_dialog() < 0:

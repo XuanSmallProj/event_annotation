@@ -10,7 +10,7 @@ def get_ann_lines(video_name):
     获得annotate目录下标签的数目总和
     """
     cnt = 0
-    with open(f"dataset/annotate/{video_name}.txt") as f:
+    with open(f"dataset/annotate/{video_name}.txt", encoding="utf-8") as f:
         for line in f.readlines():
             if line:
                 cnt += 1
@@ -66,7 +66,7 @@ def get_full_list():
     获取所有视频的完整列表(无论是否已经标注, 无论是否在Multisports数据集中)(需要有full_list)
     """
     videos = []
-    with open("full_list.txt") as f:
+    with open("full_list.txt", encoding="utf-8") as f:
         lines = f.readlines()
         for line in lines:
             if line:
@@ -76,14 +76,14 @@ def get_full_list():
 
 def get_extract_meta():
     try:
-        with open("extract.json", "r") as f:
+        with open("extract.json", "r", encoding="utf-8") as f:
             return json.load(f)
     except:
         return {}
 
 
 def save_extract_meta(meta):
-    with open("extract.json", "w") as f:
+    with open("extract.json", "w", encoding="utf-8") as f:
         json.dump(meta, f)
 
 

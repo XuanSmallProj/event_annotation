@@ -131,6 +131,7 @@ class EventGroup:
     def __init__(self, group_name, meta) -> None:
         self.group_name = group_name
         self.overlap = meta["_overlap"]
+        self.table_id = meta["_table"]
         self.event_name = []
         self.event_type = []
         for k, v in meta.items():

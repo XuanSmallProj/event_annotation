@@ -5,7 +5,13 @@
         "观众/工作人员镜头": "interval",
         "裁判/教练/运动员特写": "interval",
         "其它画面（广告/计分牌）": "interval",
-        "全景镜头": "interval"
+        "全景镜头": "interval",
+        "切换": "interval"
+    },
+    "模糊": {
+        "_overlap": false,
+        "_table": 1,
+        "模糊": "interval"
     },
     "回放": {
         "_overlap": true,

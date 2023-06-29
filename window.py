@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QMessageBox,
     QButtonGroup,
+    QHeaderView
 )
 from PySide6 import QtWidgets
 from PySide6.QtCore import Signal, Slot, QThread, Qt, QObject, QEvent
@@ -566,13 +567,20 @@ class AnnWindow(QMainWindow):
             table.setColumnCount(3)
             table.setHorizontalHeaderLabels(["event", "start", "end"])
             table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+            header = table.horizontalHeader()
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
             return table
         table_hlayout = QHBoxLayout()
-        table_hlayout.addWidget(new_ann_table())
+        change_event_table = new_ann_table()
+        table_hlayout.addWidget(change_event_table)
+        table_hlayout.setStretchFactor(change_event_table, 6)
         table_right_vlayout = QVBoxLayout()
         table_right_vlayout.addWidget(new_ann_table())
         table_right_vlayout.addWidget(new_ann_table())
         table_hlayout.addLayout(table_right_vlayout)
+        table_hlayout.setStretchFactor(table_right_vlayout, 4)
         ann_vlayout.addLayout(table_hlayout)
         ann_page.setLayout(ann_vlayout)
         control_tab.addTab(ann_page, "Annotations")

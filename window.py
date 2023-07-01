@@ -57,7 +57,7 @@ class Thread(QThread):
     sig_update_frame = Signal(int, QImage)
     sig_open_video = Signal(VideoMetaData)
 
-    BASE_EXTENT_PACE = 6
+    BASE_EXTENT_PACE = 16
 
     def __init__(
         self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue, shm_arr: RawArray
@@ -130,7 +130,8 @@ class Thread(QThread):
 
     def playrate(self, rate):
         self.view_playrate = rate
-        self.q_cmd.put(Msg(msgtp.PLAYRATE, self.v_id, rate), block=False)
+        if rate >= 1:
+            self.q_cmd.put(Msg(msgtp.PLAYRATE, self.v_id, rate), block=False)
 
     def stop(self) -> None:
         # GIL to protect it
@@ -214,9 +215,13 @@ class Thread(QThread):
 
     def update_view(self):
         cur_t = time.time()
+        if self.view_playrate < 1:
+            interval = 1.0 / 25 / self.view_playrate
+        else:
+            interval = 1.0 / 25
         if (
             self.buffer
-            and cur_t - self.last_update_t >= 1.0 / 25
+            and cur_t - self.last_update_t >= interval
             and self.view_last_to_show >= self.view_frame_id
         ):
             item: BufferItem = self.buffer[0]
@@ -535,7 +540,7 @@ class AnnWindow(QMainWindow):
         playrate_label.setFixedWidth(60)
         self.playrate_combobox = QComboBox(self)
         self.playrate_combobox.setEditable(False)
-        self.playrate_combobox.addItems(["1", "2", "4", "8", "16", "32", "64"])
+        self.playrate_combobox.addItems(["1", "4", "25", "0.1", "0.3", "0.5"])
         self.playrate_combobox.setFixedWidth(60)
         combobox_layout.addWidget(playrate_label)
         combobox_layout.addWidget(self.playrate_combobox)
@@ -726,7 +731,9 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def on_playrate_changed(self, rate):
-        rate = int(rate)
+        rate = float(rate)
+        if rate >= 1:
+            rate = int(rate)
         self.manager.playrate = rate
         self.q_view.put(Msg(msgtp.VIEW_PLAYRATE, -1, rate), block=False)
 

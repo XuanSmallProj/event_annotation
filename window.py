@@ -43,7 +43,7 @@ class BufferItem:
     def last_frame_id(self):
         return self.frame_id + (self.frame_cnt - 1) * self.rate
 
-    def expect_next_frame_id(self):
+    def next_frame_id(self):
         return self.frame_id + self.frame_cnt * self.rate
 
 
@@ -63,13 +63,14 @@ class Thread(QThread):
 
         self.shm_arr = shm_arr
 
-        self.view_cur_id = 0 # current frame id
+        self.view_cur_id = 0  # current frame id
         self.view_next_id = 0  # next frame to consume
         self.view_last_to_show = 0  # last frame to show(included)
         self.view_subscribed = 0
         self.view_playrate = 1
 
         self.buffer = []
+        self.total_frames = 0
 
         self.last_update_t = 0
 
@@ -95,10 +96,7 @@ class Thread(QThread):
         return self.view_last_to_show < self.view_next_id and self.paused
 
     def get_playrate(self):
-        if self.paused:
-            return 1
-        else:
-            return max(self.view_playrate, 1)
+        return max(self.view_playrate, 1)
 
     def get_view_interval(self):
         if self.view_playrate < 1:
@@ -143,21 +141,17 @@ class Thread(QThread):
         self.view_last_to_show = seek_id
         self.view_subscribed = seek_id + 1
         self.clear_buffer()
+        sample_rate = 1 if self.paused else self.get_playrate()
         self.q_cmd.put(
-            Msg(msgtp.READ, self.v_id, (seek_id, 1, self.get_playrate())), block=False
+            Msg(msgtp.READ, self.v_id, (seek_id, 1, sample_rate)), block=False
         )
 
     def change_playrate(self, rate):
         if self.view_playrate == rate:
             return
         self.view_playrate = rate
-        if self.paused:
-            # read the current frame again
-            if self.view_next_id >= self.get_playrate():
-                self.seek(self.view_cur_id)
-        else:
-            # read the following frame
-            self.seek(self.view_cur_id)
+        self.seek(self.view_cur_id)
+        if not self.paused:
             self.play()
 
     def stop(self) -> None:
@@ -183,7 +177,7 @@ class Thread(QThread):
                 break
             msg = self.q_view.get(block=False)
             if msg.type == msgtp.VIEW_PAUSE:
-                self.pause(msg.data)
+                self.pause(show_current_frame=msg.data)
             elif msg.type == msgtp.VIEW_PLAY:
                 self.play()
             elif msg.type == msgtp.VIEW_OPEN:
@@ -200,6 +194,8 @@ class Thread(QThread):
             elif msg.type == msgtp.VIEW_NAVIGATE:
                 if self.is_view_paused():
                     self.seek(msg.data)
+            else:
+                raise ValueError(f"Invalid type: {msg.type}")
 
     def read_video(self):
         try:
@@ -213,13 +209,15 @@ class Thread(QThread):
                         self.shm_mat.dtype == arr_type
                         and self.shm_mat.shape == arr_shape
                     )
-                    if (
-                        (len(self.buffer) == 0 and frame_id == self.view_next_id)
-                        or (
-                            len(self.buffer) > 0
-                            and (self.buffer[-1].expect_next_frame_id() == frame_id)
-                        )
-                    ) and rate == self.get_playrate():
+
+                    cond_empty = len(self.buffer) == 0 and frame_id == self.view_next_id
+                    cond_not_empty = (
+                        len(self.buffer) > 0
+                        and min(self.buffer[-1].next_frame_id(), self.total_frames - 1)
+                        == frame_id
+                    )
+                    cond_rate = rate == self.get_playrate() or (self.paused and rate == 1)
+                    if (cond_empty or cond_not_empty) and cond_rate:
                         accepted = True
                         self.buffer.append(
                             BufferItem(frame_id, rate, frame_cnt, shm_id)
@@ -235,6 +233,7 @@ class Thread(QThread):
                 self.shm_mat = np.frombuffer(shm_sliced, dtype=dtype).reshape(
                     (self.shm_cap, *shape)
                 )
+                self.total_frames = int(video_meta.total_frames)
                 self.sig_open_video.emit(video_meta)
                 self.view_cur_id = -1
                 self.view_next_id = 0
@@ -255,9 +254,14 @@ class Thread(QThread):
         ):
             item: BufferItem = self.buffer[0]
             frame_id = item.frame_id + item.cursor * item.rate
+            frame_id = min(frame_id, self.total_frames - 1)
             shm_id = (item.shm_id + item.cursor) % self.shm_cap
+
             assert self.shm_mat.shape[0] == self.shm_cap
-            assert frame_id == self.view_next_id
+            assert frame_id == min(
+                self.view_next_id, self.total_frames - 1
+            ), f"get {frame_id}, expect {self.view_next_id}"
+
             frame_content = self.shm_mat[shm_id].copy()
             self.change_view_image(frame_id, frame_content)
             item.cursor += 1

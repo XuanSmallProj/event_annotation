@@ -486,6 +486,7 @@ class AnnWindow(QMainWindow):
         self._create_tool_bar()
         self.status_bar = self.statusBar()
 
+        self.playrates = ["1", "0.1", "0.3", "0.5", "4", "25"]
         top_hlayout = QHBoxLayout()
         top_hlayout.addLayout(self._create_image_viewer())
         top_hlayout.addLayout(self._create_button_group())
@@ -540,7 +541,7 @@ class AnnWindow(QMainWindow):
         playrate_label.setFixedWidth(60)
         self.playrate_combobox = QComboBox(self)
         self.playrate_combobox.setEditable(False)
-        self.playrate_combobox.addItems(["1", "4", "25", "0.1", "0.3", "0.5"])
+        self.playrate_combobox.addItems(self.playrates)
         self.playrate_combobox.setFixedWidth(60)
         combobox_layout.addWidget(playrate_label)
         combobox_layout.addWidget(self.playrate_combobox)
@@ -844,6 +845,11 @@ class AnnWindow(QMainWindow):
             else:
                 self.manager.navigate_repeat = 0
             self.navigate_forward(1 * 2 ** (self.manager.navigate_repeat))
+
+        elif event.key() >= Qt.Key.Key_1 and event.key() <= Qt.Key.Key_9:
+            index = event.key() - Qt.Key.Key_1
+            if index < len(self.playrates):
+                self.playrate_combobox.setCurrentIndex(index)
 
         return super().keyPressEvent(event)
 

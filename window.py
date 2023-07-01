@@ -63,7 +63,8 @@ class Thread(QThread):
 
         self.shm_arr = shm_arr
 
-        self.view_frame_id = 0  # next frame to consume
+        self.view_cur_id = 0 # current frame id
+        self.view_next_id = 0  # next frame to consume
         self.view_last_to_show = 0  # last frame to show(included)
         self.view_subscribed = 0
         self.view_playrate = 1
@@ -91,7 +92,7 @@ class Thread(QThread):
         self.buffer = []
 
     def is_view_paused(self):
-        return self.view_last_to_show < self.view_frame_id and self.paused
+        return self.view_last_to_show < self.view_next_id and self.paused
 
     def get_playrate(self):
         if self.paused:
@@ -107,9 +108,9 @@ class Thread(QThread):
 
     def pause(self, show_current_frame):
         if show_current_frame:
-            self.view_last_to_show = self.view_frame_id
+            self.view_last_to_show = self.view_next_id
         else:
-            self.view_last_to_show = self.view_frame_id - 1
+            self.view_last_to_show = self.view_next_id - 1
         self.paused = True
 
     def open(self, path):
@@ -119,7 +120,7 @@ class Thread(QThread):
     def play(self):
         self.paused = False
         least_subscribed = (
-            self.view_frame_id + self.BASE_EXTENT_PACE * self.get_playrate()
+            self.view_next_id + self.BASE_EXTENT_PACE * self.get_playrate()
         )
         sample_rate = self.get_playrate()
         if self.view_subscribed < least_subscribed:
@@ -138,7 +139,7 @@ class Thread(QThread):
         self.view_last_to_show = self.view_subscribed - 1
 
     def seek(self, seek_id):
-        self.view_frame_id = seek_id
+        self.view_next_id = seek_id
         self.view_last_to_show = seek_id
         self.view_subscribed = seek_id + 1
         self.clear_buffer()
@@ -152,11 +153,11 @@ class Thread(QThread):
         self.view_playrate = rate
         if self.paused:
             # read the current frame again
-            if self.view_frame_id > 0:
-                self.seek(self.view_frame_id - 1)
+            if self.view_next_id >= self.get_playrate():
+                self.seek(self.view_cur_id)
         else:
             # read the following frame
-            self.seek(self.view_frame_id)
+            self.seek(self.view_cur_id)
             self.play()
 
     def stop(self) -> None:
@@ -213,7 +214,7 @@ class Thread(QThread):
                         and self.shm_mat.shape == arr_shape
                     )
                     if (
-                        (len(self.buffer) == 0 and frame_id == self.view_frame_id)
+                        (len(self.buffer) == 0 and frame_id == self.view_next_id)
                         or (
                             len(self.buffer) > 0
                             and (self.buffer[-1].expect_next_frame_id() == frame_id)
@@ -235,7 +236,8 @@ class Thread(QThread):
                     (self.shm_cap, *shape)
                 )
                 self.sig_open_video.emit(video_meta)
-                self.view_frame_id = 0
+                self.view_cur_id = -1
+                self.view_next_id = 0
                 self.view_last_to_show = 0
                 self.view_playrate = 1
                 self.seek(0)
@@ -249,10 +251,10 @@ class Thread(QThread):
         if (
             self.buffer
             and cur_t - self.last_update_t >= self.get_view_interval()
-            and self.view_last_to_show >= self.view_frame_id
+            and self.view_last_to_show >= self.view_next_id
         ):
             item: BufferItem = self.buffer[0]
-            frame_id = item.frame_id + item.cursor
+            frame_id = item.frame_id + item.cursor * item.rate
             shm_id = (item.shm_id + item.cursor) % self.shm_cap
             assert self.shm_mat.shape[0] == self.shm_cap
             frame_content = self.shm_mat[shm_id].copy()
@@ -262,10 +264,11 @@ class Thread(QThread):
             if item.cursor >= item.frame_cnt:
                 self.buffer.pop(0)
 
-            self.view_frame_id += item.rate
+            self.view_cur_id = self.view_next_id
+            self.view_next_id += item.rate
             self.last_update_t = cur_t
 
-            margin = self.view_subscribed - self.view_frame_id
+            margin = self.view_subscribed - self.view_next_id
             thresh = self.BASE_EXTENT_PACE * self.get_playrate() / 2
             if not self.paused and margin < thresh:
                 self.play()

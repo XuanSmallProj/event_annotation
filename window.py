@@ -513,7 +513,7 @@ class AnnWindow(QMainWindow):
         self._create_tool_bar()
         self.status_bar = self.statusBar()
 
-        self.playrates = ["1", "0.1", "0.3", "0.5", "4", "25"]
+        self.playrates = ["1", "0.1", "0.3", "0.5", "4", "8"]
         top_hlayout = QHBoxLayout()
         top_hlayout.addLayout(self._create_image_viewer())
         top_hlayout.addLayout(self._create_button_group())

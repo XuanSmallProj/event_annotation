@@ -47,12 +47,6 @@ class BufferItem:
         return self.frame_id + self.frame_cnt * self.rate
 
 
-class CircularBuffer:
-    def __init__(self, cap) -> None:
-        self.cap = cap
-        self.buffer = []
-
-
 class Thread(QThread):
     sig_update_frame = Signal(int, QImage)
     sig_open_video = Signal(VideoMetaData)
@@ -86,8 +80,30 @@ class Thread(QThread):
 
         self.v_id = 0
 
-    def is_paused(self):
+    def clear_buffer(self):
+        for item in self.buffer:
+            item: BufferItem
+            self.frame_ack(
+                self.v_id,
+                (item.shm_id + item.cursor) % self.shm_cap,
+                item.frame_cnt - item.cursor,
+            )
+        self.buffer = []
+
+    def is_view_paused(self):
         return self.view_last_to_show < self.view_frame_id and self.paused
+
+    def get_playrate(self):
+        if self.paused:
+            return 1
+        else:
+            return max(self.view_playrate, 1)
+
+    def get_view_interval(self):
+        if self.view_playrate < 1:
+            return 1.0 / 25 / self.view_playrate
+        else:
+            return 1.0 / 25
 
     def pause(self, show_current_frame):
         if show_current_frame:
@@ -101,37 +117,47 @@ class Thread(QThread):
         self.q_cmd.put(Msg(msgtp.OPEN, self.v_id, path), block=False)
 
     def play(self):
+        self.paused = False
         least_subscribed = (
-            self.view_frame_id + self.BASE_EXTENT_PACE * self.view_playrate
+            self.view_frame_id + self.BASE_EXTENT_PACE * self.get_playrate()
         )
+        sample_rate = self.get_playrate()
         if self.view_subscribed < least_subscribed:
             self.q_cmd.put(
                 Msg(
                     msgtp.READ,
                     self.v_id,
-                    (self.view_subscribed, least_subscribed - self.view_subscribed),
+                    (
+                        self.view_subscribed,
+                        least_subscribed - self.view_subscribed,
+                        sample_rate,
+                    ),
                 )
             )
             self.view_subscribed = least_subscribed
         self.view_last_to_show = self.view_subscribed - 1
-        self.paused = False
 
     def seek(self, seek_id):
         self.view_frame_id = seek_id
         self.view_last_to_show = seek_id
         self.view_subscribed = seek_id + 1
-        for item in self.buffer:
-            item: BufferItem
-            self.frame_ack(
-                self.v_id, item.shm_id + item.cursor, item.frame_cnt - item.cursor
-            )
-        self.buffer = []
-        self.q_cmd.put(Msg(msgtp.READ, self.v_id, (seek_id, 1)), block=False)
+        self.clear_buffer()
+        self.q_cmd.put(
+            Msg(msgtp.READ, self.v_id, (seek_id, 1, self.get_playrate())), block=False
+        )
 
-    def playrate(self, rate):
+    def change_playrate(self, rate):
+        if self.view_playrate == rate:
+            return
         self.view_playrate = rate
-        if rate >= 1:
-            self.q_cmd.put(Msg(msgtp.PLAYRATE, self.v_id, rate), block=False)
+        if self.paused:
+            # read the current frame again
+            if self.view_frame_id > 0:
+                self.seek(self.view_frame_id - 1)
+        else:
+            # read the following frame
+            self.seek(self.view_frame_id)
+            self.play()
 
     def stop(self) -> None:
         # GIL to protect it
@@ -162,16 +188,16 @@ class Thread(QThread):
             elif msg.type == msgtp.VIEW_OPEN:
                 self.open(msg.data)
             elif msg.type == msgtp.VIEW_TOGGLE:
-                if self.is_paused():
+                if self.paused:
                     self.play()
                 else:
                     self.pause(show_current_frame=False)
             elif msg.type == msgtp.VIEW_SEEK:
                 self.seek(msg.data)
             elif msg.type == msgtp.VIEW_PLAYRATE:
-                self.playrate(msg.data)
+                self.change_playrate(msg.data)
             elif msg.type == msgtp.VIEW_NAVIGATE:
-                if self.is_paused():
+                if self.is_view_paused():
                     self.seek(msg.data)
 
     def read_video(self):
@@ -180,19 +206,24 @@ class Thread(QThread):
 
             if msg.type == msgtp.VIDEO_FRAMES:
                 v_id, frame_id, rate, shm_id, frame_cnt, arr_shape, arr_type = msg.data
+                accepted = False
                 if v_id == self.v_id:
                     assert (
                         self.shm_mat.dtype == arr_type
                         and self.shm_mat.shape == arr_shape
                     )
-                    if (len(self.buffer) == 0 and frame_id == self.view_frame_id) or (
-                        len(self.buffer) > 0
-                        and (self.buffer[-1].expect_next_frame_id() == frame_id)
-                    ):
+                    if (
+                        (len(self.buffer) == 0 and frame_id == self.view_frame_id)
+                        or (
+                            len(self.buffer) > 0
+                            and (self.buffer[-1].expect_next_frame_id() == frame_id)
+                        )
+                    ) and rate == self.get_playrate():
+                        accepted = True
                         self.buffer.append(
                             BufferItem(frame_id, rate, frame_cnt, shm_id)
                         )
-                else:
+                if not accepted:
                     self.frame_ack(v_id, shm_id, frame_cnt)
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
@@ -215,13 +246,9 @@ class Thread(QThread):
 
     def update_view(self):
         cur_t = time.time()
-        if self.view_playrate < 1:
-            interval = 1.0 / 25 / self.view_playrate
-        else:
-            interval = 1.0 / 25
         if (
             self.buffer
-            and cur_t - self.last_update_t >= interval
+            and cur_t - self.last_update_t >= self.get_view_interval()
             and self.view_last_to_show >= self.view_frame_id
         ):
             item: BufferItem = self.buffer[0]
@@ -239,7 +266,7 @@ class Thread(QThread):
             self.last_update_t = cur_t
 
             margin = self.view_subscribed - self.view_frame_id
-            thresh = self.BASE_EXTENT_PACE * self.view_playrate / 2
+            thresh = self.BASE_EXTENT_PACE * self.get_playrate() / 2
             if not self.paused and margin < thresh:
                 self.play()
 

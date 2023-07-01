@@ -23,7 +23,7 @@ class Video:
         self.frame_cur = 0
         self.frame_rd = 0
         self.frame_nbytes = 0
-        self.playrate = 1
+        self.sample_rate = 1
 
         self.v_id = 0
 
@@ -51,7 +51,7 @@ class Video:
         self.frame_end = -1  # (included)
         self.frame_cur = 0  # next frame to send
         self.frame_rd = 0  # pos of opencv cap
-        self.playrate = 1
+        self.sample_rate = 1
         self.frame_nbytes = frame.nbytes
 
         self.shm_begin = 0
@@ -84,7 +84,8 @@ class Video:
         )
         self.waiting_open_ack = True
 
-    def read(self, start, length):
+    def read(self, start, length, sample_rate):
+        self.sample_rate = sample_rate
         if start == self.frame_end + 1:
             self.frame_end = start + length - 1
         else:
@@ -103,14 +104,14 @@ class Video:
         elif cmd.type == msgtp.OPEN:
             self.open(cmd.data)
         elif cmd.type == msgtp.READ:
-            start, length = cmd.data
-            self.read(start, length)
-        elif cmd.type == msgtp.PLAYRATE:
-            self.playrate = cmd.data
+            start, length, sample_rate = cmd.data
+            self.read(start, length, sample_rate)
         elif cmd.type == msgtp.FRAME_ACK:
             shm_start, shm_len = cmd.data
             next_shm_id = (shm_start + shm_len) % self.shm_cap
-            assert shm_start == self.shm_end
+            if shm_start != self.shm_end:
+                raise ValueError(f"{shm_start} {self.shm_end}")
+
             if shm_start == self.shm_end:
                 self.shm_end = next_shm_id
         elif cmd.type == msgtp.OPEN_ACK:
@@ -143,7 +144,7 @@ class Video:
             (
                 self.v_id,
                 frame_id,
-                self.playrate,
+                self.sample_rate,
                 start_shm_id,
                 len(frames),
                 self.shm_mat.shape,
@@ -166,7 +167,7 @@ class Video:
                 if self.frame_rd == self.frame_cur:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     results.append(frame)
-                    self.frame_cur += self.playrate
+                    self.frame_cur += self.sample_rate
                     cur_shm_begin += 1
 
                 self.frame_rd += 1

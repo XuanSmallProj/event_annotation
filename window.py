@@ -257,6 +257,7 @@ class Thread(QThread):
             frame_id = item.frame_id + item.cursor * item.rate
             shm_id = (item.shm_id + item.cursor) % self.shm_cap
             assert self.shm_mat.shape[0] == self.shm_cap
+            assert frame_id == self.view_next_id
             frame_content = self.shm_mat[shm_id].copy()
             self.change_view_image(frame_id, frame_content)
             item.cursor += 1
@@ -743,7 +744,7 @@ class AnnWindow(QMainWindow):
         self.q_view.put(Msg(msgtp.VIEW_OPEN, -1, img_path), block=False)
 
     def navigate_back(self, frame):
-        if self.manager.video_meta.total_frame < 1:
+        if self.manager.video_meta.total_frames < 1:
             return
         next_frame = self.manager.view_frame_id
         next_frame -= frame
@@ -752,11 +753,11 @@ class AnnWindow(QMainWindow):
         self.view_update_by_manager(button_update=True)
 
     def navigate_forward(self, frame):
-        if self.manager.video_meta.total_frame < 1:
+        if self.manager.video_meta.total_frames < 1:
             return
         next_frame = self.manager.view_frame_id
         next_frame += frame
-        next_frame = min(next_frame, int(self.manager.video_meta.total_frame) - 1)
+        next_frame = min(next_frame, int(self.manager.video_meta.total_frames) - 1)
         self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, -1, next_frame))
         self.view_update_by_manager(button_update=True)
 

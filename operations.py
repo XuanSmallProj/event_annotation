@@ -124,9 +124,9 @@ def extract(v, meta=None):
         int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
         int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
     )
-    total_frame = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    metadata = VideoMetaData(f"dataset/{v}.mp4", total_frame, fps)
+    metadata = VideoMetaData(f"dataset/{v}.mp4", total_frames, fps)
 
     for k, val in info.items():
         t0, t1 = TimeStamp.from_str(val[0]), TimeStamp.from_str(val[1])

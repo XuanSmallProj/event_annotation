@@ -46,10 +46,10 @@ class TimeStamp:
         return self.cmp(t) >= 0
 
 class VideoMetaData:
-    def __init__(self, path, total_frame, fps):
+    def __init__(self, path, total_frames, fps):
         self.path = path
         self.name = get_video_name(path)
-        self.total_frames = total_frame
+        self.total_frames = total_frames
         self.fps = fps
 
     def frame_to_time(self, frame_id):

@@ -5,6 +5,7 @@ import numpy as np
 from utils import VideoMetaData
 import time
 from multiprocessing import RawArray
+import queue
 
 
 class Video:
@@ -111,6 +112,7 @@ class Video:
         elif cmd.type == msgtp.FRAME_ACK:
             shm_start, shm_len = cmd.data
             next_shm_id = (shm_start + shm_len) % self.shm_cap
+            assert shm_start == self.shm_end
             if shm_start != self.shm_end:
                 raise ValueError(f"{shm_start} {self.shm_end}")
 
@@ -127,7 +129,7 @@ class Video:
                 self.execute_cmd(cmd)
                 if self.close:
                     break
-            except:
+            except queue.Empty:
                 break
 
     def send_frames(self, frame_id, frames):
@@ -162,6 +164,7 @@ class Video:
         while not self.close and self.frame_cur <= self.frame_end:
             if self.cap is None:
                 break
+            assert (cur_shm_begin + 1) % self.shm_cap != self.shm_end
             if (cur_shm_begin + 1) % self.shm_cap == self.shm_end:
                 break
             ret, frame = self.cap.read()

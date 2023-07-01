@@ -3,8 +3,7 @@ from enum import IntEnum, auto
 class MsgType(IntEnum):
     CLOSE = 0
     OPEN = auto()
-    EXTEND = auto()
-    SEEK = auto()
+    READ = auto()
     PLAYRATE = auto()
     FRAME_ACK = auto()
     OPEN_ACK = auto()

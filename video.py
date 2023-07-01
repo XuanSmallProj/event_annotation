@@ -1,9 +1,8 @@
 import cv2
-from multiprocessing import Queue, shared_memory
+from multiprocessing import Queue
 from msg import Msg, MsgType as msgtp
 import numpy as np
-from utils import get_video_name, annotations_from_str, VideoMetaData
-import os
+from utils import VideoMetaData
 import time
 from multiprocessing import RawArray
 
@@ -49,27 +48,52 @@ class Video:
         self.v_id += 1
 
         self.frame_start = 0
-        self.frame_end = -1
-        self.frame_cur = 0
-        self.frame_rd = 0
+        self.frame_end = -1  # (included)
+        self.frame_cur = 0  # next frame to send
+        self.frame_rd = 0  # pos of opencv cap
         self.playrate = 1
         self.frame_nbytes = frame.nbytes
-        
+
         self.shm_begin = 0
         self.shm_end = 0
         self.shm_cap = self.shm_size // frame.nbytes
         self.shm_mat = None
 
-        shm_sliced = np.frombuffer(self.shm_arr, dtype='b')[:self.shm_cap*frame.nbytes]
-        self.shm_mat = np.frombuffer(shm_sliced, dtype=frame.dtype).reshape((self.shm_cap, *frame.shape))
+        shm_sliced = np.frombuffer(self.shm_arr, dtype="b")[
+            : self.shm_cap * frame.nbytes
+        ]
+        self.shm_mat = np.frombuffer(shm_sliced, dtype=frame.dtype).reshape(
+            (self.shm_cap, *frame.shape)
+        )
 
         meta_data = VideoMetaData(path, self.total_frame, self.fps)
-        self.q_video.put(Msg(msgtp.VIDEO_OPEN_ACK, self.v_id, (self.v_id, self.shm_cap, frame.nbytes, frame.shape, frame.dtype, meta_data)), block=False)
-
+        self.q_video.put(
+            Msg(
+                msgtp.VIDEO_OPEN_ACK,
+                self.v_id,
+                (
+                    self.v_id,
+                    self.shm_cap,
+                    frame.nbytes,
+                    frame.shape,
+                    frame.dtype,
+                    meta_data,
+                ),
+            ),
+            block=False,
+        )
         self.waiting_open_ack = True
-    
-    def set_frame(self, frame):
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame)
+
+    def read(self, start, length):
+        if start == self.frame_end + 1:
+            self.frame_end = start + length - 1
+        else:
+            if self.cap:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+            self.frame_start = start
+            self.frame_cur = start
+            self.frame_rd = start
+            self.frame_end = start + length - 1
 
     def execute_cmd(self, cmd: Msg):
         if cmd.v_id != self.v_id:
@@ -78,15 +102,9 @@ class Video:
             self.close = True
         elif cmd.type == msgtp.OPEN:
             self.open(cmd.data)
-        elif cmd.type == msgtp.EXTEND:
-            self.frame_end = max(self.frame_cur - 1, cmd.data)
-        elif cmd.type == msgtp.SEEK:
-            self.frame_start = cmd.data
-            self.frame_cur = self.frame_start
-            self.frame_end = self.frame_start
-            self.frame_rd = self.frame_start
-            if self.cap:
-                self.set_frame(self.frame_start)
+        elif cmd.type == msgtp.READ:
+            start, length = cmd.data
+            self.read(start, length)
         elif cmd.type == msgtp.PLAYRATE:
             self.playrate = cmd.data
         elif cmd.type == msgtp.FRAME_ACK:
@@ -108,7 +126,7 @@ class Video:
                     break
             except:
                 break
-    
+
     def send_frames(self, frame_id, frames):
         f = frames[0]
         assert self.frame_nbytes == f.nbytes
@@ -119,7 +137,19 @@ class Video:
             self.shm_begin = (self.shm_begin + 1) % self.shm_cap
             assert self.shm_begin != self.shm_end
 
-        msg = Msg(msgtp.VIDEO_FRAMES, self.v_id, (self.v_id, frame_id, self.playrate, start_shm_id, len(frames), self.shm_mat.shape, self.shm_mat.dtype))
+        msg = Msg(
+            msgtp.VIDEO_FRAMES,
+            self.v_id,
+            (
+                self.v_id,
+                frame_id,
+                self.playrate,
+                start_shm_id,
+                len(frames),
+                self.shm_mat.shape,
+                self.shm_mat.dtype,
+            ),
+        )
         self.q_video.put(msg, block=False)
 
     def read_frames(self, maxframes=3):
@@ -138,7 +168,7 @@ class Video:
                     results.append(frame)
                     self.frame_cur += self.playrate
                     cur_shm_begin += 1
-                
+
                 self.frame_rd += 1
                 if len(results) >= maxframes:
                     break
@@ -146,7 +176,7 @@ class Video:
                 break
         if results:
             self.send_frames(init_id, results)
-    
+
     def shutdown(self):
         pass
 
@@ -155,5 +185,5 @@ class Video:
             self.read_cmd()
             if not self.waiting_open_ack:
                 self.read_frames()
-            time.sleep(0.001)
+            time.sleep(0.00001)
         self.shutdown()

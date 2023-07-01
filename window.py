@@ -14,23 +14,21 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QMessageBox,
     QButtonGroup,
-    QHeaderView
+    QHeaderView,
 )
 from PySide6 import QtWidgets
-from PySide6.QtCore import Signal, Slot, QThread, Qt, QObject, QEvent
-from PySide6.QtGui import QImage, QPixmap, QAction, QPalette, QColor
-from multiprocessing import Queue, shared_memory
+from PySide6.QtCore import Signal, Slot, QThread, Qt
+from PySide6.QtGui import QImage, QPixmap, QAction
+from multiprocessing import Queue
 from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
 from utils import VideoMetaData, sort_events, Event, EventGroup
 from enum import IntEnum
-from typing import *
 import os
-import math
 import json
-from typing import Dict, Union
+from typing import Dict, Union, List, Tuple
 from multiprocessing import RawArray
 
 
@@ -49,22 +47,31 @@ class BufferItem:
         return self.frame_id + self.frame_cnt * self.rate
 
 
+class CircularBuffer:
+    def __init__(self, cap) -> None:
+        self.cap = cap
+        self.buffer = []
+
+
 class Thread(QThread):
     sig_update_frame = Signal(int, QImage)
     sig_open_video = Signal(VideoMetaData)
 
     BASE_EXTENT_PACE = 6
 
-    def __init__(self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue, shm_arr: RawArray):
+    def __init__(
+        self, parent, q_frame: Queue, q_cmd: Queue, q_view: Queue, shm_arr: RawArray
+    ):
         super().__init__(parent=parent)
-        self.q_frame = q_frame
-        self.q_cmd = q_cmd
-        self.shm_arr = shm_arr
+        self.q_frame = q_frame  # this thread to decoder
+        self.q_cmd = q_cmd  # this thread to viewer
+        self.q_view = q_view  # viewer to this thread
 
-        self.q_view = q_view
+        self.shm_arr = shm_arr
 
         self.view_frame_id = 0  # next frame to consume
         self.view_last_to_show = 0  # last frame to show(included)
+        self.view_subscribed = 0
         self.view_playrate = 1
 
         self.buffer = []
@@ -82,37 +89,49 @@ class Thread(QThread):
     def is_paused(self):
         return self.view_last_to_show < self.view_frame_id and self.paused
 
-    def pause(self, lag):
-        if lag:
+    def pause(self, show_current_frame):
+        if show_current_frame:
             self.view_last_to_show = self.view_frame_id
         else:
-            self.view_last_to_show = self.view_frame_id - 2
+            self.view_last_to_show = self.view_frame_id - 1
         self.paused = True
 
     def open(self, path):
-        self.pause(lag=False)
+        self.pause(show_current_frame=False)
         self.q_cmd.put(Msg(msgtp.OPEN, self.v_id, path), block=False)
 
     def play(self):
-        self.view_last_to_show = (
+        least_subscribed = (
             self.view_frame_id + self.BASE_EXTENT_PACE * self.view_playrate
         )
+        if self.view_subscribed < least_subscribed:
+            self.q_cmd.put(
+                Msg(
+                    msgtp.READ,
+                    self.v_id,
+                    (self.view_subscribed, least_subscribed - self.view_subscribed),
+                )
+            )
+            self.view_subscribed = least_subscribed
+        self.view_last_to_show = self.view_subscribed - 1
         self.paused = False
-        self.q_cmd.put(Msg(msgtp.EXTEND, self.v_id, self.view_last_to_show), block=False)
 
     def seek(self, seek_id):
         self.view_frame_id = seek_id
         self.view_last_to_show = seek_id
+        self.view_subscribed = seek_id + 1
         for item in self.buffer:
             item: BufferItem
-            self.frame_ack(self.v_id, item.shm_id + item.cursor, item.frame_cnt - item.cursor)
+            self.frame_ack(
+                self.v_id, item.shm_id + item.cursor, item.frame_cnt - item.cursor
+            )
         self.buffer = []
-        self.q_cmd.put(Msg(msgtp.SEEK, self.v_id, seek_id), block=False)
+        self.q_cmd.put(Msg(msgtp.READ, self.v_id, (seek_id, 1)), block=False)
 
     def playrate(self, rate):
         self.view_playrate = rate
         self.q_cmd.put(Msg(msgtp.PLAYRATE, self.v_id, rate), block=False)
-    
+
     def stop(self) -> None:
         # GIL to protect it
         self.stopped = True
@@ -145,7 +164,7 @@ class Thread(QThread):
                 if self.is_paused():
                     self.play()
                 else:
-                    self.pause(lag=False)
+                    self.pause(show_current_frame=False)
             elif msg.type == msgtp.VIEW_SEEK:
                 self.seek(msg.data)
             elif msg.type == msgtp.VIEW_PLAYRATE:
@@ -161,26 +180,34 @@ class Thread(QThread):
             if msg.type == msgtp.VIDEO_FRAMES:
                 v_id, frame_id, rate, shm_id, frame_cnt, arr_shape, arr_type = msg.data
                 if v_id == self.v_id:
-                    assert self.shm_mat.dtype == arr_type and self.shm_mat.shape == arr_shape
+                    assert (
+                        self.shm_mat.dtype == arr_type
+                        and self.shm_mat.shape == arr_shape
+                    )
                     if (len(self.buffer) == 0 and frame_id == self.view_frame_id) or (
                         len(self.buffer) > 0
                         and (self.buffer[-1].expect_next_frame_id() == frame_id)
                     ):
-                        self.buffer.append(BufferItem(frame_id, rate, frame_cnt, shm_id))
+                        self.buffer.append(
+                            BufferItem(frame_id, rate, frame_cnt, shm_id)
+                        )
                 else:
                     self.frame_ack(v_id, shm_id, frame_cnt)
 
             elif msg.type == msgtp.VIDEO_OPEN_ACK:
                 self.v_id, self.shm_cap, nbytes, shape, dtype, video_meta = msg.data
-                shm_sliced = np.frombuffer(self.shm_arr, dtype='b')[:self.shm_cap*nbytes]
-                self.shm_mat = np.frombuffer(shm_sliced, dtype=dtype).reshape((self.shm_cap, *shape))
+                shm_sliced = np.frombuffer(self.shm_arr, dtype="b")[
+                    : self.shm_cap * nbytes
+                ]
+                self.shm_mat = np.frombuffer(shm_sliced, dtype=dtype).reshape(
+                    (self.shm_cap, *shape)
+                )
                 self.sig_open_video.emit(video_meta)
                 self.view_frame_id = 0
                 self.view_last_to_show = 0
                 self.view_playrate = 1
                 self.seek(0)
                 self.open_ack(self.v_id)
-                # self.play()
 
         except queue.Empty:
             pass
@@ -206,7 +233,7 @@ class Thread(QThread):
             self.view_frame_id += item.rate
             self.last_update_t = cur_t
 
-            margin = self.view_last_to_show - self.view_frame_id
+            margin = self.view_subscribed - self.view_frame_id
             thresh = self.BASE_EXTENT_PACE * self.view_playrate / 2
             if not self.paused and margin < thresh:
                 self.play()
@@ -283,7 +310,7 @@ class AnnManager:
                         if e2.f1 >= e.f0 and e2.f1 <= e.f1:
                             return True
         return False
-    
+
     def get_disabled_events(self):
         """
         有两种情况事件会被禁止使用:
@@ -418,7 +445,7 @@ class AnnManager:
         self.is_dirty = False
 
     def event_annotations_tuple_list(self):
-        tables = [[] for _ in range(self.event_max_table_id+1)]
+        tables = [[] for _ in range(self.event_max_table_id + 1)]
         for e in self.event_annotations:
             group, _ = self._get_event_group_type(e.name)
             tables[group.table_id].append((e.name, e.f0, e.f1))
@@ -433,7 +460,7 @@ class AnnWindow(QMainWindow):
         def __init__(self, tables, parent=None):
             super().__init__(parent)
             self.tables = tables
-        
+
         def focusInEvent(self, event) -> None:
             for table in self.tables:
                 if not (table is self):
@@ -561,6 +588,7 @@ class AnnWindow(QMainWindow):
         button_layout.addWidget(self.save_ann_btn)
         ann_vlayout.addLayout(button_layout)
         self.annotation_tables = []
+
         def new_ann_table():
             table = self.AnnTableWidget(self.annotation_tables, self)
             self.annotation_tables.append(table)
@@ -572,6 +600,7 @@ class AnnWindow(QMainWindow):
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
             return table
+
         table_hlayout = QHBoxLayout()
         change_event_table = new_ann_table()
         table_hlayout.addWidget(change_event_table)
@@ -647,11 +676,11 @@ class AnnWindow(QMainWindow):
                 else:
                     btn.setStyleSheet(self.btn_new_stylesheet)
                 btn.setEnabled(True)
-                
+
                 if event in disabled_events:
                     btn.setStyleSheet(self.btn_overlap_stylesheet)
                     btn.setEnabled(False)
-                    
+
         # set focus to centralwidget(otherwise the keyboard won't work)
         # TODO: figure out why
         self.centralWidget().setFocus()

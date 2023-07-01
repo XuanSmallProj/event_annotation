@@ -12,6 +12,7 @@ class Video:
         self.cap = None
         self.fps = 1
         self.width, self.height = 0, 0
+        self.total_frames = 0
 
         self.close = False
 
@@ -40,7 +41,7 @@ class Video:
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         self.height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        self.total_frame = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         ret, frame = self.cap.read()
         if not ret:
             return False
@@ -53,6 +54,7 @@ class Video:
         self.frame_rd = 0  # pos of opencv cap
         self.sample_rate = 1
         self.frame_nbytes = frame.nbytes
+        self.frame_tot_cnt = 0
 
         self.shm_begin = 0
         self.shm_end = 0
@@ -66,7 +68,7 @@ class Video:
             (self.shm_cap, *frame.shape)
         )
 
-        meta_data = VideoMetaData(path, self.total_frame, self.fps)
+        meta_data = VideoMetaData(path, self.total_frames, self.fps)
         self.q_video.put(
             Msg(
                 msgtp.VIDEO_OPEN_ACK,
@@ -87,14 +89,14 @@ class Video:
     def read(self, start, length, sample_rate):
         self.sample_rate = sample_rate
         if start == self.frame_end + 1:
-            self.frame_end = start + length - 1
+            self.frame_end = min(start + length - 1, self.total_frames - 1)
         else:
             if self.cap:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, start)
             self.frame_start = start
             self.frame_cur = start
             self.frame_rd = start
-            self.frame_end = start + length - 1
+            self.frame_end = min(start + length - 1, self.total_frames - 1)
 
     def execute_cmd(self, cmd: Msg):
         if cmd.v_id != self.v_id:
@@ -164,10 +166,14 @@ class Video:
                 break
             ret, frame = self.cap.read()
             if ret:
+                # always include the last frame
                 if self.frame_rd == self.frame_cur:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     results.append(frame)
-                    self.frame_cur += self.sample_rate
+                    if self.frame_cur == self.total_frames - 1:
+                        self.frame_cur += self.sample_rate
+                    else:
+                        self.frame_cur = min(self.frame_cur + self.sample_rate, self.total_frames - 1)
                     cur_shm_begin += 1
 
                 self.frame_rd += 1

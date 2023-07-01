@@ -808,7 +808,7 @@ class AnnWindow(QMainWindow):
     @Slot(VideoMetaData, list)
     def on_open_video(self, meta_data: VideoMetaData):
         self.manager.open(meta_data)
-        self.slider_change_config(meta_data.total_frame)
+        self.slider_change_config(meta_data.total_frames)
         self.playrate_combobox.setCurrentText("1")
         self.view_update_by_manager(ann_update=True, button_update=True)
 

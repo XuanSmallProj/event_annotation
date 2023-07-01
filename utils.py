@@ -49,7 +49,7 @@ class VideoMetaData:
     def __init__(self, path, total_frame, fps):
         self.path = path
         self.name = get_video_name(path)
-        self.total_frame = total_frame
+        self.total_frames = total_frame
         self.fps = fps
 
     def frame_to_time(self, frame_id):

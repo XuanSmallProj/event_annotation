@@ -133,7 +133,7 @@ class EventGroup:
         self.overlap = meta["_overlap"]
         self.table_id = meta["_table"]
         self.event_name = []
-        self.event_type = []
+        self.event_type = []  # interval/shot
         for k, v in meta.items():
             if not k.startswith("_"):
                 self.event_name.append(k)

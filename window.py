@@ -28,8 +28,9 @@ from utils import VideoMetaData, sort_events, Event, EventGroup
 from enum import IntEnum
 import os
 import json
-from typing import Dict, Union, List, Tuple
+from typing import Dict, List, Tuple
 from multiprocessing import RawArray
+from annotation import AnnotationManager, EventGroup
 
 
 class BufferItem:
@@ -216,7 +217,9 @@ class Thread(QThread):
                         and min(self.buffer[-1].next_frame_id(), self.total_frames - 1)
                         == frame_id
                     )
-                    cond_rate = rate == self.get_playrate() or (self.paused and rate == 1)
+                    cond_rate = rate == self.get_playrate() or (
+                        self.paused and rate == 1
+                    )
                     if (cond_empty or cond_not_empty) and cond_rate:
                         accepted = True
                         self.buffer.append(
@@ -293,10 +296,6 @@ class AnnManager:
 
     def __init__(self) -> None:
         self.video_meta = VideoMetaData("", 0, 1)
-        self.extract_origin_name = ""
-        self.extract_index = 0
-        self.event_annotations: List[Event] = []  # Event
-        self.event_annotations_by_group = {}
         self.breakpoints = []
         # id of the current frame shown on the screen
         self.view_frame_id = 0
@@ -306,79 +305,26 @@ class AnnManager:
         self.navigate_repeat = 0
         self.playrate = 1
 
-        self.event_groups: Dict[str, EventGroup]
-        self.event_groups, self.event_max_table_id = self.read_event_meta()
+        event_groups = self.read_event_config()
+        self.annotation_manager = AnnotationManager(event_groups)
 
         self.event_btn_state = {}
-        for k in self.get_event_list():
+        for k in self.annotation_manager.get_all_events():
             self.event_btn_state[k] = (self.State.IDLE, 0)
 
     def get_current_time(self):
         return self.video_meta.frame_to_time(self.view_frame_id)
 
-    def get_event_list(self):
-        result = []
-        for group in self.event_groups.values():
-            result.extend(group.event_name)
-        return result
-
-    def _get_event_group_type(self, event: Union[Event, str]) -> Tuple[EventGroup, str]:
-        if isinstance(event, str):
-            name = event
-        else:
-            name = event.name
-        for _, v in self.event_groups.items():
-            tp = v.get_type(name)
-            if tp:
-                return v, tp
-        raise ValueError(f"invalid event: {name}")
-
-    def is_event_allow_overlap(self, event):
-        group, _ = self._get_event_group_type(event)
-        return group.overlap
-
-    def check_event_overlap_conflict(self):
-        for i, e in enumerate(self.event_annotations):
-            group_e, _ = self._get_event_group_type(e)
-            if not group_e.overlap:
-                for j in range(i + 1, len(self.event_annotations)):
-                    e2 = self.event_annotations[j]
-                    group_e2, _ = self._get_event_group_type(e2)
-                    if group_e2.group_name == group_e.group_name:
-                        if e.f1 >= e2.f0 and e.f1 <= e2.f1:
-                            return True
-                        if e2.f1 >= e.f0 and e2.f1 <= e.f1:
-                            return True
-        return False
-
-    def get_disabled_events(self):
-        """
-        有两种情况事件会被禁止使用:
-        1. 事件所属group中有另一事件包含当前帧
-        2. 有同名事件包含当前帧
-        """
-        disabled_events = set()
-        for e in self.event_annotations:
-            group, _ = self._get_event_group_type(e)
-            if e.f0 <= self.view_frame_id and e.f1 >= self.view_frame_id:
-                disabled_events.add(e.name)
-                if not group.overlap:
-                    for e_in_group in group.event_name:
-                        disabled_events.add(e_in_group)
-        return disabled_events
-
     def get_event_btn_state(self, event):
         return self.event_btn_state[event][0]
 
-    def read_event_meta(self) -> Dict[str, EventGroup]:
+    def read_event_config(self):
         with open("event.json", "r", encoding="utf-8") as f:
             config = json.load(f)
         event_groups = {}
-        max_table_id = 0
         for k, v in config.items():
             event_groups[k] = EventGroup(k, v)
-            max_table_id = max(max_table_id, event_groups[k].table_id)
-        return event_groups, max_table_id
+        return event_groups
 
     def read_event_annotation_str(self, vname):
         path = os.path.join("dataset", "annotate_event", vname + ".txt")
@@ -390,24 +336,9 @@ class AnnManager:
                 f.write("")
             return ""
 
-    def parse_event_annotation_str(self, s: str):
-        res = []
-        events_set = set(self.get_event_list())
-        for line in s.split("\n"):
-            if line:
-                e = Event.parse(line)
-                if e.name in events_set:
-                    _, tp = self._get_event_group_type(e)
-                    e.type = tp
-                    res.append(e)
-        return res
-
-    def create_event_annotations(self, name, start_id, end_id):
+    def create_event_annotations(self, name, start_frame, end_frame):
         self.is_dirty = True
-        _, type = self._get_event_group_type(name)
-        e = Event(name, type)
-        e.f0, e.f1 = start_id, end_id
-        self.event_annotations.append(e)
+        self.annotation_manager.add_annotation(name, start_frame, end_frame)
 
     def remove_event_annotations(self, indexes):
         # TODO: remove logic is very complicate, simplify this.
@@ -420,7 +351,7 @@ class AnnManager:
             indexes[i] = sorted(list(set(table_indexes)))
 
         while rear0 < len(self.event_annotations):
-            group, _ = self._get_event_group_type(self.event_annotations[rear0])
+            group, _ = self._get_event_group_and_type(self.event_annotations[rear0])
 
             cur_rear = index_rear[group.table_id]
             if cur_rear < len(indexes[group.table_id]):
@@ -453,7 +384,7 @@ class AnnManager:
         self.playrate = 1
 
     def event_button_clicked(self, event_name):
-        _, type = self._get_event_group_type(event_name)
+        type = self.annotation_manager.get_event_type(event_name)
         st, frame = self.event_btn_state[event_name]
         if st == self.State.IDLE:
             if type == "shot":
@@ -479,17 +410,13 @@ class AnnManager:
         path = os.path.join("dataset", "annotate_event", self.video_meta.name + ".txt")
         sorted_annotations = sort_events(self.event_annotations)
         content = "\n".join([str(e) for e in sorted_annotations])
-        assert not self.check_event_overlap_conflict()
+        assert not self.annotation_manager.check_overlap_conflict()
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         self.is_dirty = False
 
     def event_annotations_tuple_list(self):
-        tables = [[] for _ in range(self.event_max_table_id + 1)]
-        for e in self.event_annotations:
-            group, _ = self._get_event_group_type(e.name)
-            tables[group.table_id].append((e.name, e.f0, e.f1))
-        return tables
+        raise RuntimeError()
 
     def add_breakpoint(self, frame_id):
         self.breakpoints.append(frame_id)
@@ -542,8 +469,11 @@ class AnnWindow(QMainWindow):
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.sliderPressed.connect(self.slider_pressed)
         for table in self.annotation_tables:
-            table.itemDoubleClicked.connect(self.on_double_click_table_item)
-        self.breakpoint_table.itemDoubleClicked.connect(self.on_double_click_table_item)
+            table.itemDoubleClicked.connect(self.on_double_click_annotation_table_item)
+            table.itemChanged.connect(self.on_annotation_table_item_changed)
+        self.breakpoint_table.itemDoubleClicked.connect(
+            self.on_double_click_breakpoint_table_item
+        )
 
         self.breakpoint_btn.clicked.connect(self.on_breakpoint_btn_clicked)
 
@@ -792,7 +722,8 @@ class AnnWindow(QMainWindow):
     def slider_change_config(self, total):
         self.slider.setMaximum(total)
 
-    def _update_table(self, table, annotations):
+    def _update_table(self, table: QTableWidget, annotations):
+        table.blockSignals(True)
         while table.rowCount():
             table.removeRow(0)
         for i, ann in enumerate(annotations):
@@ -805,6 +736,7 @@ class AnnWindow(QMainWindow):
             table.insertRow(i)
             for j, item in enumerate(items):
                 table.setItem(i, j, item)
+        table.blockSignals(False)
 
     def update_ann_table(self, annotations: List[List[Tuple[str, int, int]]]):
         for i, anns in enumerate(annotations):
@@ -821,12 +753,21 @@ class AnnWindow(QMainWindow):
         self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot(QTableWidgetItem)
-    def on_double_click_table_item(self, item: QTableWidgetItem):
-        try:
+    def on_double_click_annotation_table_item(self, item: QTableWidgetItem):
+        if item.column() == 0:
+            item.tableWidget().editItem(item)
+        else:
             frame_id = int(item.text())
             self.seek(frame_id)
-        except:
-            pass
+
+    @Slot(QTableWidgetItem)
+    def on_annotation_table_item_changed(self, item: QTableWidgetItem):
+        print(item.text())
+
+    @Slot(QTableWidgetItem)
+    def on_double_click_breakpoint_table_item(self, item: QTableWidgetItem):
+        frame_id = int(item.text())
+        self.seek(frame_id)
 
     @Slot()
     def on_breakpoint_btn_clicked(self):

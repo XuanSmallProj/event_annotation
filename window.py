@@ -396,7 +396,36 @@ class AnnWindowManager:
         return self.annotation_manager.annotations_tuple_list()
 
     def disabled_events(self):
-        return self.annotation_manager.get_disabled_events(self.view_frame_id)
+        """
+        有两种情况事件会被禁止使用:
+        1. 事件所属group中有另一事件包含当前帧且allow_overlap为False
+        2. 事件所属group中有另一事件当前被选中且allow_overlap为False
+        2. 有同名事件包含当前帧
+        """
+        disabled_events = set()
+        for group_name, anns in self.annotation_manager.annotations.items():
+            group = self.annotation_manager.event_groups[group_name]
+            group_conflict = False
+            chosen_event = None
+            for e_name in group.event_name:
+                if self.event_btn_state[e_name][0] == self.State.NEW:
+                    if group_conflict:
+                        chosen_event = None
+                    else:
+                        group_conflict = True
+                        chosen_event = e_name
+
+            for ann in anns:
+                if ann.f0 <= self.view_frame_id and ann.f1 >= self.view_frame_id:
+                    disabled_events.add(ann.event_name)
+                    group_conflict = True
+                    chosen_event = None
+
+            if group_conflict and not group.allow_overlap:
+                for e_name in group.event_name:
+                    if e_name != chosen_event:
+                        disabled_events.add(e_name)
+        return disabled_events
 
     def add_breakpoint(self, frame_id):
         self.breakpoints.append(frame_id)
@@ -774,7 +803,9 @@ class AnnWindow(QMainWindow):
         except ValueError:
             ok = False
         if ok:
-            self.manager.modify_annotation(group_name, row, event_name, start_frame, end_frame)
+            self.manager.modify_annotation(
+                group_name, row, event_name, start_frame, end_frame
+            )
         self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot(QTableWidgetItem)

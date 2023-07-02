@@ -122,23 +122,6 @@ class AnnotationManager:
                         if ann[i].overlap(ann[j]):
                             return True
         return False
-
-    def get_disabled_events(self, cur):
-        """
-        有两种情况事件会被禁止使用:
-        1. 事件所属group中有另一事件包含当前帧且allow_overlap为False
-        2. 有同名事件包含当前帧
-        """
-        disabled_events = set()
-        for group_name, anns in self.annotations.items():
-            group = self.event_groups[group_name]
-            for ann in anns:
-                if ann.f0 <= cur and ann.f1 >= cur:
-                    disabled_events.add(ann.event_name)
-                    if not self.event_groups[group_name].allow_overlap:
-                        for e_name in group.event_name:
-                            disabled_events.add(e_name)
-        return disabled_events
     
     def modify_annotation(self, group_name, idx, event_name, start_frame, end_frame):
         anns = self.annotations[group_name]

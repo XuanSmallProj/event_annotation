@@ -56,6 +56,7 @@ class AnnotationManager:
     def __init__(self, event_groups: Dict[str, EventGroup]) -> None:
         self.event_groups = event_groups
         self.annotations: Dict[str, List[Annotation]] = {}
+        self.comments = {}
         for k in event_groups.keys():
             self.annotations[k] = []
 
@@ -87,7 +88,14 @@ class AnnotationManager:
     def parse_annotations(self, s: str):
         self.clear_annotations()
         for line in s.split("\n"):
-            if line:
+            if not line:
+                continue
+            if line[0] == "#":
+                # comment
+                key, value = line[1:].split(":")
+                key, value = key.strip(), value.strip()
+                self.comments[key] = value
+            else:
                 lst = line.split(",")
                 event_name = lst[0]
                 self.add_annotation(event_name, int(lst[1]), int(lst[2]))
@@ -98,6 +106,7 @@ class AnnotationManager:
 
     def clear_annotations(self):
         keys = list(self.annotations.keys())
+        self.comments = {}
         for k in keys:
             self.annotations[k] = []
 
@@ -107,10 +116,13 @@ class AnnotationManager:
 
     def save(self, path):
         self.sort()
+        all_comments = []
+        for k, v in self.comments.items():
+            all_comments.append(f"# {k}: {v}")
         all_anns = []
         for k, ann in self.annotations.items():
             all_anns.extend([str(a) for a in ann])
-        content = "\n".join(all_anns)
+        content = "\n".join(all_comments) + "\n" +  "\n".join(all_anns)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
 

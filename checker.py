@@ -21,7 +21,7 @@ def check_partition(groupname, annotations: List[Annotation], total_frames=None)
         last = ann.f1
 
     if continual:
-        if total_frames and last != total_frames:
+        if total_frames and last + 1 != total_frames:
             errs.append(f"{groupname}中的标签没有覆盖整段视频")
     return errs
 

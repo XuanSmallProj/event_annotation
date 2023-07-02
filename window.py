@@ -8,7 +8,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QSlider,
+    QDialog,
     QFileDialog,
     QComboBox,
     QTabWidget,
@@ -27,10 +29,21 @@ import queue
 from utils import VideoMetaData
 from enum import IntEnum
 import os
-import json
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from multiprocessing import RawArray
 from annotation import AnnotationManager
+from checker import check
+
+
+class QModelessTextDialog(QDialog):
+    def __init__(self, msg, parent=None) -> None:
+        super().__init__(parent)
+        self.text_edit = QTextEdit(self)
+        self.text_edit.setPlainText(msg)
+        self.text_edit.setReadOnly(True)
+        self.vlayout = QVBoxLayout()
+        self.vlayout.addWidget(self.text_edit)
+        self.setLayout(self.vlayout)
 
 
 class BufferItem:
@@ -354,7 +367,7 @@ class AnnWindowManager:
         self.playrate = 1
     
     def open_ann(self, ann_path):
-        if os.path.exists(ann_path):
+        if self.valid() and os.path.exists(ann_path):
             self.annotation_path = ann_path
             self.annotation_manager.parse_annotations_from_file(ann_path)
 
@@ -486,6 +499,7 @@ class AnnWindow(QMainWindow):
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
         self.edit_ann_btn.clicked.connect(self.on_edit_ann_btn_clicked)
+        self.check_ann_btn.clicked.connect(self.on_check_ann_btn_clicked)
         self.playrate_combobox.currentTextChanged.connect(self.on_playrate_changed)
         self.btn_group.buttonClicked.connect(self.on_event_btn_clicked)
 
@@ -566,10 +580,12 @@ class AnnWindow(QMainWindow):
         self.save_ann_btn = QPushButton("save", self)
         self.edit_ann_btn = QPushButton("edit", self)
         self.edit_mode = False
+        self.check_ann_btn = QPushButton("check", self)
         button_layout.addWidget(self.sort_ann_btn)
         button_layout.addWidget(self.remove_ann_btn)
         button_layout.addWidget(self.save_ann_btn)
         button_layout.addWidget(self.edit_ann_btn)
+        button_layout.addWidget(self.check_ann_btn)
         ann_vlayout.addLayout(button_layout)
         self.annotation_tables: Dict[str, QTableWidget] = {}
 
@@ -797,6 +813,19 @@ class AnnWindow(QMainWindow):
         else:
             self.edit_ann_btn.setStyleSheet("")
         self.centralWidget().setFocus()
+    
+    @Slot()
+    def on_check_ann_btn_clicked(self):
+        if self.manager.valid():
+            errs = check(self.manager.annotation_manager, self.manager.video_meta)
+            if errs:
+                dialog = QModelessTextDialog("\n".join(errs), self)
+                dialog.show()
+            else:
+                cur_msg = self.status_bar.currentMessage()
+                if not cur_msg.endswith("OK!"):
+                    cur_msg += " OK!"
+                self.status_bar.showMessage(cur_msg)
 
     @Slot(QTableWidgetItem)
     def on_annotation_table_item_changed(self, item: QTableWidgetItem):

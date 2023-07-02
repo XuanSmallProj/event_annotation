@@ -758,6 +758,7 @@ class AnnWindow(QMainWindow):
             self.edit_ann_btn.setStyleSheet(self.btn_new_stylesheet)
         else:
             self.edit_ann_btn.setStyleSheet("")
+        self.centralWidget().setFocus()
 
     @Slot(QTableWidgetItem)
     def on_annotation_table_item_changed(self, item: QTableWidgetItem):
@@ -804,6 +805,7 @@ class AnnWindow(QMainWindow):
     @Slot()
     def on_save_ann_btn_clicked(self):
         self.manager.save_event_annotations()
+        self.centralWidget().setFocus()
 
     @Slot(QPushButton)
     def on_event_btn_clicked(self, btn: QPushButton):

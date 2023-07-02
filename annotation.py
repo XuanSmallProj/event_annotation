@@ -1,5 +1,6 @@
 from typing import List, Dict
 import functools
+import json
 
 
 class Annotation:
@@ -20,14 +21,14 @@ class Annotation:
         return f"{self.event_name},{self.f0},{self.f1}"
 
 
-def sort_events(events, ascend=True):
+def sort_annotations(annotations, ascend=True) -> List[Annotation]:
     def cmp(e0, e1):
         if e0.f0 == e1.f0:
             return e0.f1 - e1.f1
         else:
             return e0.f0 - e1.f0
 
-    return sorted(events, key=functools.cmp_to_key(cmp), reverse=(not ascend))
+    return sorted(annotations, key=functools.cmp_to_key(cmp), reverse=(not ascend))
 
 
 class EventGroup:
@@ -35,21 +36,21 @@ class EventGroup:
         self.group_name = group_name
         self.allow_overlap = meta["_overlap"]
         self.table_id = meta["_table"]
-        self.event_name = []
-        self.event_type = []  # interval/shot
+        self.event_names = []
+        self.event_types = []  # interval/shot
         for k, v in meta.items():
             if not k.startswith("_"):
-                self.event_name.append(k)
-                self.event_type.append(v)
+                self.event_names.append(k)
+                self.event_types.append(v)
 
     def get_type(self, name):
-        for n, tp in zip(self.event_name, self.event_type):
+        for n, tp in zip(self.event_names, self.event_types):
             if n == name:
                 return tp
         return None
 
     def has(self, name):
-        return name in self.event_name
+        return name in self.event_names
 
 
 class AnnotationManager:
@@ -60,10 +61,19 @@ class AnnotationManager:
         for k in event_groups.keys():
             self.annotations[k] = []
 
+    @classmethod
+    def from_json(cls, path):
+        with open(path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        event_groups = {}
+        for k, v in config.items():
+            event_groups[k] = EventGroup(k, v)
+        return cls(event_groups)
+
     def get_all_events(self) -> List[str]:
         result = []
         for group in self.event_groups.values():
-            result.extend(group.event_name)
+            result.extend(group.event_names)
         return result
 
     def get_event_group(self, event_name):
@@ -112,7 +122,7 @@ class AnnotationManager:
 
     def sort(self):
         for k, ann in self.annotations.items():
-            self.annotations[k] = sort_events(ann)
+            self.annotations[k] = sort_annotations(ann)
 
     def save(self, path):
         self.sort()

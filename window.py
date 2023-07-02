@@ -24,13 +24,13 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import VideoMetaData, EventGroup
+from utils import VideoMetaData
 from enum import IntEnum
 import os
 import json
 from typing import Dict, List, Tuple
 from multiprocessing import RawArray
-from annotation import AnnotationManager, EventGroup
+from annotation import AnnotationManager
 
 
 class BufferItem:
@@ -305,8 +305,7 @@ class AnnWindowManager:
         self.navigate_repeat = 0
         self.playrate = 1
 
-        event_groups = self.read_event_config()
-        self.annotation_manager = AnnotationManager(event_groups)
+        self.annotation_manager = AnnotationManager.from_json("event.json")
         self.annotation_path = None
 
         self.event_btn_state = {}
@@ -318,14 +317,6 @@ class AnnWindowManager:
 
     def get_event_btn_state(self, event):
         return self.event_btn_state[event][0]
-
-    def read_event_config(self):
-        with open("event.json", "r", encoding="utf-8") as f:
-            config = json.load(f)
-        event_groups = {}
-        for k, v in config.items():
-            event_groups[k] = EventGroup(k, v)
-        return event_groups
 
     def default_annotation_path(self, vname):
         return os.path.join("dataset", "annotate_event", vname + ".txt")
@@ -411,7 +402,7 @@ class AnnWindowManager:
             group = self.annotation_manager.event_groups[group_name]
             group_conflict = False
             chosen_event = None
-            for e_name in group.event_name:
+            for e_name in group.event_names:
                 if self.event_btn_state[e_name][0] == self.State.NEW:
                     if group_conflict:
                         chosen_event = None
@@ -426,7 +417,7 @@ class AnnWindowManager:
                     chosen_event = None
 
             if group_conflict and not group.allow_overlap:
-                for e_name in group.event_name:
+                for e_name in group.event_names:
                     if e_name != chosen_event:
                         disabled_events.add(e_name)
         return disabled_events

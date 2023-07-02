@@ -139,6 +139,17 @@ class AnnotationManager:
                     for e_name in group.event_name:
                         disabled_events.add(e_name)
         return disabled_events
+    
+    def modify_annotation(self, group_name, idx, event_name, start_frame, end_frame):
+        anns = self.annotations[group_name]
+        assert anns[idx].event_name == event_name
+        tp = self.event_groups[group_name].get_type(event_name)
+        if tp == "interval":
+            if start_frame <= end_frame:
+                anns[idx].f0, anns[idx].f1 = start_frame, end_frame
+        else:
+            if start_frame == end_frame:
+                anns[idx].f0, anns[idx].f1 = start_frame, end_frame
 
     def remove_annotations(self, group_name, indexes: List[int]):
         anns = self.annotations[group_name]

@@ -336,11 +336,16 @@ class AnnWindowManager:
                 f.write("")
             return ""
 
-    def create_event_annotations(self, name, start_frame, end_frame):
+    def create_annotation(self, name, start_frame, end_frame):
         self.is_dirty = True
         self.annotation_manager.add_annotation(name, start_frame, end_frame)
 
-    def remove_event_annotations(self, indexes: Dict[str, List[int]]):
+    def modify_annotation(self, group_name, idx, event_name, start_frame, end_frame):
+        self.annotation_manager.modify_annotation(
+            group_name, idx, event_name, start_frame, end_frame
+        )
+
+    def remove_annotations(self, indexes: Dict[str, List[int]]):
         self.is_dirty = True
         for group_name, idxs in indexes.items():
             self.annotation_manager.remove_annotations(group_name, idxs)
@@ -350,7 +355,9 @@ class AnnWindowManager:
 
     def open(self, video_meta):
         self.video_meta = video_meta
-        self.annotation_manager.parse_annotations(self.read_event_annotation_str(self.video_meta.name))
+        self.annotation_manager.parse_annotations(
+            self.read_event_annotation_str(self.video_meta.name)
+        )
         self.breakpoints = []
         self.new_start_frame_id = 0
         self.view_frame_id = 0
@@ -362,7 +369,7 @@ class AnnWindowManager:
         st, frame = self.event_btn_state[event_name]
         if st == self.State.IDLE:
             if type == "shot":
-                self.create_event_annotations(
+                self.create_annotation(
                     event_name, self.view_frame_id, self.view_frame_id
                 )
             elif type == "interval":
@@ -373,7 +380,7 @@ class AnnWindowManager:
             else:
                 raise ValueError(f"{type} not implemented")
         elif st == self.State.NEW:
-            self.create_event_annotations(event_name, frame, self.view_frame_id)
+            self.create_annotation(event_name, frame, self.view_frame_id)
             self.event_btn_state[event_name] = self.State.IDLE, 0
 
     def cancel_new_event_annotation(self):
@@ -387,7 +394,7 @@ class AnnWindowManager:
 
     def annotations_tuple_list(self):
         return self.annotation_manager.annotations_tuple_list()
-    
+
     def disabled_events(self):
         return self.annotation_manager.get_disabled_events(self.view_frame_id)
 
@@ -454,6 +461,7 @@ class AnnWindow(QMainWindow):
         self.sort_ann_btn.clicked.connect(self.on_sort_ann_btn_clicked)
         self.remove_ann_btn.clicked.connect(self.on_remove_ann_btn_clicked)
         self.save_ann_btn.clicked.connect(self.on_save_ann_btn_clicked)
+        self.edit_ann_btn.clicked.connect(self.on_edit_ann_btn_clicked)
         self.playrate_combobox.currentTextChanged.connect(self.on_playrate_changed)
         self.btn_group.buttonClicked.connect(self.on_event_btn_clicked)
 
@@ -528,13 +536,17 @@ class AnnWindow(QMainWindow):
         self.sort_ann_btn = QPushButton("sort", self)
         self.remove_ann_btn = QPushButton("delete", self)
         self.save_ann_btn = QPushButton("save", self)
+        self.edit_ann_btn = QPushButton("edit", self)
+        self.edit_mode = False
         button_layout.addWidget(self.sort_ann_btn)
         button_layout.addWidget(self.remove_ann_btn)
         button_layout.addWidget(self.save_ann_btn)
+        button_layout.addWidget(self.edit_ann_btn)
         ann_vlayout.addLayout(button_layout)
         self.annotation_tables: Dict[str, QTableWidget] = {}
 
         all_ann_tables = []
+
         def new_ann_table(name):
             table = self.AnnTableWidget(name, all_ann_tables, self)
             self.annotation_tables[name] = table
@@ -732,14 +744,37 @@ class AnnWindow(QMainWindow):
     @Slot(QTableWidgetItem)
     def on_double_click_annotation_table_item(self, item: QTableWidgetItem):
         if item.column() == 0:
+            return
+        if self.edit_mode:
             item.tableWidget().editItem(item)
         else:
             frame_id = int(item.text())
             self.seek(frame_id)
 
+    @Slot()
+    def on_edit_ann_btn_clicked(self):
+        self.edit_mode = not self.edit_mode
+        if self.edit_mode:
+            self.edit_ann_btn.setStyleSheet(self.btn_new_stylesheet)
+        else:
+            self.edit_ann_btn.setStyleSheet("")
+
     @Slot(QTableWidgetItem)
     def on_annotation_table_item_changed(self, item: QTableWidgetItem):
-        print(item.text())
+        row = item.row()
+        table = item.tableWidget()
+        group_name = table.name
+        event_name = table.item(row, 0).text()
+        ok = True
+        try:
+            start_frame = int(table.item(row, 1).text())
+            end_frame = int(table.item(row, 2).text())
+            ok = end_frame >= start_frame
+        except ValueError:
+            ok = False
+        if ok:
+            self.manager.modify_annotation(group_name, row, event_name, start_frame, end_frame)
+        self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot(QTableWidgetItem)
     def on_double_click_breakpoint_table_item(self, item: QTableWidgetItem):
@@ -763,14 +798,14 @@ class AnnWindow(QMainWindow):
             cur_remove = [item.row() for item in table.selectedItems()]
             cur_remove = [i for i in cur_remove if i >= 0]
             selected[k] = cur_remove
-        self.manager.remove_event_annotations(selected)
+        self.manager.remove_annotations(selected)
         self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot()
     def on_save_ann_btn_clicked(self):
         self.manager.save_event_annotations()
 
-    @Slot()
+    @Slot(QPushButton)
     def on_event_btn_clicked(self, btn: QPushButton):
         self.manager.event_button_clicked(btn.text())
         self.view_update_by_manager(button_update=True, ann_update=True)

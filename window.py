@@ -24,7 +24,7 @@ from msg import Msg, MsgType as msgtp
 import numpy as np
 import time
 import queue
-from utils import VideoMetaData, sort_events, Event, EventGroup
+from utils import VideoMetaData, EventGroup
 from enum import IntEnum
 import os
 import json
@@ -289,7 +289,7 @@ class Thread(QThread):
             time.sleep(0.001)
 
 
-class AnnManager:
+class AnnWindowManager:
     class State(IntEnum):
         IDLE = 0
         NEW = 1
@@ -340,43 +340,17 @@ class AnnManager:
         self.is_dirty = True
         self.annotation_manager.add_annotation(name, start_frame, end_frame)
 
-    def remove_event_annotations(self, indexes):
-        # TODO: remove logic is very complicate, simplify this.
+    def remove_event_annotations(self, indexes: Dict[str, List[int]]):
         self.is_dirty = True
-        to_remove = set()
-        rear0 = 0
-        index_rear = [0] * len(indexes)
-        cnts = [0] * len(indexes)
-        for i, table_indexes in enumerate(indexes):
-            indexes[i] = sorted(list(set(table_indexes)))
-
-        while rear0 < len(self.event_annotations):
-            group, _ = self._get_event_group_and_type(self.event_annotations[rear0])
-
-            cur_rear = index_rear[group.table_id]
-            if cur_rear < len(indexes[group.table_id]):
-                if cnts[group.table_id] == indexes[group.table_id][cur_rear]:
-                    index_rear[group.table_id] += 1
-                    to_remove.add(rear0)
-
-            rear0 += 1
-            cnts[group.table_id] += 1
-
-        self.event_annotations = [
-            ann for i, ann in enumerate(self.event_annotations) if i not in to_remove
-        ]
-
-    def sort_event_annotations(self):
-        self.event_annotations = sort_events(self.event_annotations)
+        for group_name, idxs in indexes.items():
+            self.annotation_manager.remove_annotations(group_name, idxs)
 
     def valid(self):
         return len(self.video_meta.name) > 0
 
-    def open(self, meta_data):
-        self.video_meta = meta_data
-        self.event_annotations = self.parse_event_annotation_str(
-            self.read_event_annotation_str(self.video_meta.name)
-        )
+    def open(self, video_meta):
+        self.video_meta = video_meta
+        self.annotation_manager.parse_annotations(self.read_event_annotation_str(self.video_meta.name))
         self.breakpoints = []
         self.new_start_frame_id = 0
         self.view_frame_id = 0
@@ -408,15 +382,14 @@ class AnnManager:
 
     def save_event_annotations(self):
         path = os.path.join("dataset", "annotate_event", self.video_meta.name + ".txt")
-        sorted_annotations = sort_events(self.event_annotations)
-        content = "\n".join([str(e) for e in sorted_annotations])
-        assert not self.annotation_manager.check_overlap_conflict()
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
+        self.annotation_manager.save(path)
         self.is_dirty = False
 
-    def event_annotations_tuple_list(self):
-        raise RuntimeError()
+    def annotations_tuple_list(self):
+        return self.annotation_manager.annotations_tuple_list()
+    
+    def disabled_events(self):
+        return self.annotation_manager.get_disabled_events(self.view_frame_id)
 
     def add_breakpoint(self, frame_id):
         self.breakpoints.append(frame_id)
@@ -424,8 +397,9 @@ class AnnManager:
 
 class AnnWindow(QMainWindow):
     class AnnTableWidget(QTableWidget):
-        def __init__(self, tables, parent=None):
+        def __init__(self, name, tables, parent=None):
             super().__init__(parent)
+            self.name = name
             self.tables = tables
 
         def focusInEvent(self, event) -> None:
@@ -436,7 +410,7 @@ class AnnWindow(QMainWindow):
 
     def __init__(self, q_frame: Queue, q_cmd: Queue, shm_arr: RawArray) -> None:
         super().__init__()
-        self.manager: AnnManager = AnnManager()
+        self.manager: AnnWindowManager = AnnWindowManager()
         self.setWindowTitle("Annotator")
 
         self.shm_arr = shm_arr
@@ -468,7 +442,7 @@ class AnnWindow(QMainWindow):
     def setup_connection(self):
         self.slider.sliderReleased.connect(self.slider_released)
         self.slider.sliderPressed.connect(self.slider_pressed)
-        for table in self.annotation_tables:
+        for table in self.annotation_tables.values():
             table.itemDoubleClicked.connect(self.on_double_click_annotation_table_item)
             table.itemChanged.connect(self.on_annotation_table_item_changed)
         self.breakpoint_table.itemDoubleClicked.connect(
@@ -518,7 +492,7 @@ class AnnWindow(QMainWindow):
         return vlayout
 
     def _create_button_group(self):
-        event_list = self.manager.get_event_list()
+        event_list = self.manager.annotation_manager.get_all_events()
         v_layout = QVBoxLayout()
         self.btn_group = QButtonGroup(self)
         self.event_btn_mapping = {}
@@ -558,11 +532,13 @@ class AnnWindow(QMainWindow):
         button_layout.addWidget(self.remove_ann_btn)
         button_layout.addWidget(self.save_ann_btn)
         ann_vlayout.addLayout(button_layout)
-        self.annotation_tables = []
+        self.annotation_tables: Dict[str, QTableWidget] = {}
 
-        def new_ann_table():
-            table = self.AnnTableWidget(self.annotation_tables, self)
-            self.annotation_tables.append(table)
+        all_ann_tables = []
+        def new_ann_table(name):
+            table = self.AnnTableWidget(name, all_ann_tables, self)
+            self.annotation_tables[name] = table
+            all_ann_tables.append(table)
             table.setColumnCount(3)
             table.setHorizontalHeaderLabels(["event", "start", "end"])
             table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -573,12 +549,12 @@ class AnnWindow(QMainWindow):
             return table
 
         table_hlayout = QHBoxLayout()
-        change_event_table = new_ann_table()
+        change_event_table = new_ann_table("变化事件")
         table_hlayout.addWidget(change_event_table)
         table_hlayout.setStretchFactor(change_event_table, 6)
         table_right_vlayout = QVBoxLayout()
-        table_right_vlayout.addWidget(new_ann_table())
-        table_right_vlayout.addWidget(new_ann_table())
+        table_right_vlayout.addWidget(new_ann_table("回放"))
+        table_right_vlayout.addWidget(new_ann_table("镜头情况"))
         table_hlayout.addLayout(table_right_vlayout)
         table_hlayout.setStretchFactor(table_right_vlayout, 4)
         ann_vlayout.addLayout(table_hlayout)
@@ -632,17 +608,17 @@ class AnnWindow(QMainWindow):
             self.status_bar.showMessage(msg)
 
         if ann_update:
-            self.update_ann_table(self.manager.event_annotations_tuple_list())
+            self.update_ann_table(self.manager.annotations_tuple_list())
 
         if breakpoint_update:
             self.update_breakpoint_table(self.manager.breakpoints)
 
         if button_update:
-            disabled_events = self.manager.get_disabled_events()
+            disabled_events = self.manager.disabled_events()
             for event, btn in self.event_btn_mapping.items():
                 btn: QPushButton
                 st = self.manager.get_event_btn_state(event)
-                if st == AnnManager.State.IDLE:
+                if st == AnnWindowManager.State.IDLE:
                     btn.setStyleSheet(self.btn_idl_stylesheet)
                 else:
                     btn.setStyleSheet(self.btn_new_stylesheet)
@@ -695,7 +671,7 @@ class AnnWindow(QMainWindow):
         self.q_view.put(Msg(msgtp.VIEW_NAVIGATE, -1, next_frame))
         self.view_update_by_manager(button_update=True)
 
-    @Slot()
+    @Slot(float)
     def on_playrate_changed(self, rate):
         rate = float(rate)
         if rate >= 1:
@@ -703,7 +679,7 @@ class AnnWindow(QMainWindow):
         self.manager.playrate = rate
         self.q_view.put(Msg(msgtp.VIEW_PLAYRATE, -1, rate), block=False)
 
-    @Slot(QImage)
+    @Slot(int, QImage)
     def set_frame(self, frame_id, image):
         self.manager.view_frame_id = frame_id
         self.slider.setValue(frame_id)
@@ -738,17 +714,18 @@ class AnnWindow(QMainWindow):
                 table.setItem(i, j, item)
         table.blockSignals(False)
 
-    def update_ann_table(self, annotations: List[List[Tuple[str, int, int]]]):
-        for i, anns in enumerate(annotations):
-            self._update_table(self.annotation_tables[i], anns)
+    def update_ann_table(self, annotations: Dict[str, List[Tuple[str, int, int]]]):
+        for k, anns in annotations.items():
+            if k in self.annotation_tables:
+                self._update_table(self.annotation_tables[k], anns)
 
     def update_breakpoint_table(self, breakpoints):
         self._update_table(self.breakpoint_table, breakpoints)
 
-    @Slot(VideoMetaData, list)
-    def on_open_video(self, meta_data: VideoMetaData):
-        self.manager.open(meta_data)
-        self.slider_change_config(meta_data.total_frames)
+    @Slot(VideoMetaData)
+    def on_open_video(self, video_meta: VideoMetaData):
+        self.manager.open(video_meta)
+        self.slider_change_config(video_meta.total_frames)
         self.playrate_combobox.setCurrentText("1")
         self.view_update_by_manager(ann_update=True, button_update=True)
 
@@ -776,16 +753,16 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def on_sort_ann_btn_clicked(self):
-        self.manager.sort_event_annotations()
+        self.manager.annotation_manager.sort()
         self.view_update_by_manager(ann_update=True)
 
     @Slot()
     def on_remove_ann_btn_clicked(self):
-        selected = []
-        for table in self.annotation_tables:
+        selected = {}
+        for k, table in self.annotation_tables.items():
             cur_remove = [item.row() for item in table.selectedItems()]
             cur_remove = [i for i in cur_remove if i >= 0]
-            selected.append(cur_remove)
+            selected[k] = cur_remove
         self.manager.remove_event_annotations(selected)
         self.view_update_by_manager(ann_update=True, button_update=True)
 

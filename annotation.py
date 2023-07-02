@@ -56,6 +56,8 @@ class AnnotationManager:
     def __init__(self, event_groups: Dict[str, EventGroup]) -> None:
         self.event_groups = event_groups
         self.annotations: Dict[str, List[Annotation]] = {}
+        for k in event_groups.keys():
+            self.annotations[k] = []
 
     def get_all_events(self) -> List[str]:
         result = []
@@ -80,7 +82,7 @@ class AnnotationManager:
         type = group.get_type(event_name)
         e = Annotation(event_name, type)
         e.f0, e.f1 = start_frame, end_frame
-        self.event_groups[group.group_name].append(e)
+        self.annotations[group.group_name].append(e)
 
     def parse_annotations(self, s: str):
         self.clear_annotations()
@@ -137,3 +139,16 @@ class AnnotationManager:
                     for e_name in group.event_name:
                         disabled_events.add(e_name)
         return disabled_events
+
+    def remove_annotations(self, group_name, indexes: List[int]):
+        anns = self.annotations[group_name]
+        to_remove = set(indexes)
+        anns = [ann for i, ann in enumerate(anns) if i not in to_remove]
+        self.annotations[group_name] = anns
+
+    def annotations_tuple_list(self):
+        result = {}
+        for group_name, anns in self.annotations.items():
+            lst = [(ann.event_name, ann.f0, ann.f1) for ann in anns]
+            result[group_name] = lst
+        return result

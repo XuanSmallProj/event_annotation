@@ -519,7 +519,7 @@ class AnnWindow(QMainWindow):
 
         combobox_layout = QHBoxLayout()
         combobox_layout.setSpacing(0)
-        playrate_label = QLabel("Play rate:", self)
+        playrate_label = QLabel("倍速:", self)
         playrate_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -532,7 +532,7 @@ class AnnWindow(QMainWindow):
         combobox_layout.addWidget(self.playrate_combobox)
         button_layout.addLayout(combobox_layout)
 
-        self.breakpoint_btn = QPushButton("BreakPoint", self)
+        self.breakpoint_btn = QPushButton("断点", self)
         button_layout.addWidget(self.breakpoint_btn)
         vlayout.addLayout(button_layout)
         return vlayout
@@ -557,12 +557,12 @@ class AnnWindow(QMainWindow):
     def _create_tool_bar(self):
         toolbar = QToolBar("top tool bar")
         self.addToolBar(toolbar)
-        open_video_action = QAction("Video", self)
-        open_video_action.setStatusTip("Open Video")
+        open_video_action = QAction("视频", self)
+        open_video_action.setStatusTip("打开视频")
         open_video_action.triggered.connect(self.view_open_video)
         toolbar.addAction(open_video_action)
-        open_ann_action = QAction("Annotation", self)
-        open_ann_action.setStatusTip("Open Annotation File")
+        open_ann_action = QAction("标注", self)
+        open_ann_action.setStatusTip("打开标注文件")
         open_ann_action.triggered.connect(self.view_open_ann)
         toolbar.addAction(open_ann_action)
 
@@ -575,12 +575,12 @@ class AnnWindow(QMainWindow):
         ann_page = QWidget(control_tab)
         ann_vlayout = QVBoxLayout()
         button_layout = QHBoxLayout()
-        self.sort_ann_btn = QPushButton("sort", self)
-        self.remove_ann_btn = QPushButton("delete", self)
-        self.save_ann_btn = QPushButton("save", self)
-        self.edit_ann_btn = QPushButton("edit", self)
+        self.sort_ann_btn = QPushButton("排序", self)
+        self.remove_ann_btn = QPushButton("删除", self)
+        self.save_ann_btn = QPushButton("保存", self)
+        self.edit_ann_btn = QPushButton("编辑", self)
         self.edit_mode = False
-        self.check_ann_btn = QPushButton("check", self)
+        self.check_ann_btn = QPushButton("检查", self)
         button_layout.addWidget(self.sort_ann_btn)
         button_layout.addWidget(self.remove_ann_btn)
         button_layout.addWidget(self.save_ann_btn)
@@ -615,7 +615,7 @@ class AnnWindow(QMainWindow):
         table_hlayout.setStretchFactor(table_right_vlayout, 4)
         ann_vlayout.addLayout(table_hlayout)
         ann_page.setLayout(ann_vlayout)
-        control_tab.addTab(ann_page, "Annotations")
+        control_tab.addTab(ann_page, "标注")
 
         breakpoint_page = QWidget(control_tab)
         breakpoint_layout = QVBoxLayout()
@@ -628,14 +628,14 @@ class AnnWindow(QMainWindow):
             QtWidgets.QAbstractItemView.NoEditTriggers
         )
         breakpoint_page.setLayout(breakpoint_layout)
-        control_tab.addTab(breakpoint_page, "Breakpoint")
+        control_tab.addTab(breakpoint_page, "断点")
 
         control_vlayout.addWidget(control_tab)
         return control_vlayout
 
     def _show_save_dialog(self):
         dialog = QMessageBox(self)
-        dialog.setText("Annotation not saved, save it now?")
+        dialog.setText("标注尚未保存，保存？")
         dialog.setStandardButtons(
             QMessageBox.StandardButton.Save
             | QMessageBox.StandardButton.Cancel

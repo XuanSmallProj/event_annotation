@@ -11,6 +11,7 @@ class MsgType(IntEnum):
     VIDEO_FRAMES = auto()
 
     VIEW_OPEN = auto()
+    VIEW_OPEN_ANN = auto()
     VIEW_PAUSE = auto()
     VIEW_PLAY = auto()
     VIEW_TOGGLE = auto()

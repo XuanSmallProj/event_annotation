@@ -307,6 +307,7 @@ class AnnWindowManager:
 
         event_groups = self.read_event_config()
         self.annotation_manager = AnnotationManager(event_groups)
+        self.annotation_path = None
 
         self.event_btn_state = {}
         for k in self.annotation_manager.get_all_events():
@@ -326,15 +327,8 @@ class AnnWindowManager:
             event_groups[k] = EventGroup(k, v)
         return event_groups
 
-    def read_event_annotation_str(self, vname):
-        path = os.path.join("dataset", "annotate_event", vname + ".txt")
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read()
-        else:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("")
-            return ""
+    def default_annotation_path(self, vname):
+        return os.path.join("dataset", "annotate_event", vname + ".txt")
 
     def create_annotation(self, name, start_frame, end_frame):
         self.is_dirty = True
@@ -355,14 +349,23 @@ class AnnWindowManager:
 
     def open(self, video_meta):
         self.video_meta = video_meta
-        self.annotation_manager.parse_annotations(
-            self.read_event_annotation_str(self.video_meta.name)
-        )
+        self.annotation_path = None
+        default_path = self.default_annotation_path(self.video_meta.name)
+        if os.path.exists(default_path):
+            self.annotation_manager.parse_annotations_from_file(default_path)
+            self.annotation_path = default_path
+        else:
+            self.annotation_manager.clear_annotations()
         self.breakpoints = []
         self.new_start_frame_id = 0
         self.view_frame_id = 0
         self.is_dirty = False
         self.playrate = 1
+    
+    def open_ann(self, ann_path):
+        if os.path.exists(ann_path):
+            self.annotation_path = ann_path
+            self.annotation_manager.parse_annotations_from_file(ann_path)
 
     def event_button_clicked(self, event_name):
         type = self.annotation_manager.get_event_type(event_name)
@@ -388,8 +391,9 @@ class AnnWindowManager:
             self.state = self.State.IDLE
 
     def save_event_annotations(self):
-        path = os.path.join("dataset", "annotate_event", self.video_meta.name + ".txt")
-        self.annotation_manager.save(path)
+        if self.annotation_path is None:
+            self.annotation_path = self.default_annotation_path()
+        self.annotation_manager.save(self.annotation_path)
         self.is_dirty = False
 
     def annotations_tuple_list(self):
@@ -548,10 +552,14 @@ class AnnWindow(QMainWindow):
     def _create_tool_bar(self):
         toolbar = QToolBar("top tool bar")
         self.addToolBar(toolbar)
-        button_action = QAction("Open", self)
-        button_action.setStatusTip("Open Video")
-        button_action.triggered.connect(self.view_open_video)
-        toolbar.addAction(button_action)
+        open_video_action = QAction("Video", self)
+        open_video_action.setStatusTip("Open Video")
+        open_video_action.triggered.connect(self.view_open_video)
+        toolbar.addAction(open_video_action)
+        open_ann_action = QAction("Annotation", self)
+        open_ann_action.setStatusTip("Open Annotation File")
+        open_ann_action.triggered.connect(self.view_open_ann)
+        toolbar.addAction(open_ann_action)
 
     def _create_control_panel(self):
         table_width = 300
@@ -693,6 +701,16 @@ class AnnWindow(QMainWindow):
         if self.show_save_dialog() < 0:
             return
         self.q_view.put(Msg(msgtp.VIEW_OPEN, -1, img_path), block=False)
+    
+    @Slot()
+    def view_open_ann(self):
+        ann_path, _ = QFileDialog.getOpenFileName()
+        if not ann_path:
+            return
+        if self.show_save_dialog() < 0:
+            return
+        self.manager.open_ann(ann_path)
+        self.view_update_by_manager(ann_update=True)
 
     def navigate_back(self, frame):
         if self.manager.video_meta.total_frames < 1:

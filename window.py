@@ -704,7 +704,9 @@ class AnnWindow(QMainWindow):
         self.q_view.put(Msg(msgtp.VIEW_PLAY, -1, None), block=False)
 
     def seek(self, frame_id):
-        self.q_view.put(Msg(msgtp.VIEW_SEEK, -1, frame_id), block=False)
+        if self.manager.valid():
+            assert frame_id < self.manager.video_meta.total_frames
+            self.q_view.put(Msg(msgtp.VIEW_SEEK, -1, frame_id), block=False)
 
     @Slot()
     def view_open_video(self):
@@ -726,7 +728,7 @@ class AnnWindow(QMainWindow):
         self.view_update_by_manager(ann_update=True)
 
     def navigate_back(self, frame):
-        if self.manager.video_meta.total_frames < 1:
+        if self.manager.video_meta.total_frames < 1 or not self.manager.valid():
             return
         next_frame = self.manager.view_frame_id
         next_frame -= frame
@@ -735,7 +737,7 @@ class AnnWindow(QMainWindow):
         self.view_update_by_manager(button_update=True)
 
     def navigate_forward(self, frame):
-        if self.manager.video_meta.total_frames < 1:
+        if self.manager.video_meta.total_frames < 1 or not self.manager.valid():
             return
         next_frame = self.manager.view_frame_id
         next_frame += frame
@@ -745,6 +747,8 @@ class AnnWindow(QMainWindow):
 
     @Slot(float)
     def on_playrate_changed(self, rate):
+        if not self.manager.valid():
+            return
         rate = float(rate)
         if rate >= 1:
             rate = int(rate)
@@ -797,12 +801,14 @@ class AnnWindow(QMainWindow):
     @Slot(VideoMetaData)
     def on_open_video(self, video_meta: VideoMetaData):
         self.manager.open(video_meta)
-        self.slider_change_config(video_meta.total_frames)
+        self.slider_change_config(video_meta.total_frames - 1)
         self.playrate_combobox.setCurrentText("1")
         self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot(QTableWidgetItem)
     def on_double_click_annotation_table_item(self, item: QTableWidgetItem):
+        if not self.manager.valid():
+            return
         if item.column() == 0:
             return
         if self.edit_mode:
@@ -813,12 +819,13 @@ class AnnWindow(QMainWindow):
 
     @Slot()
     def on_edit_ann_btn_clicked(self):
-        self.edit_mode = not self.edit_mode
-        if self.edit_mode:
-            self.edit_ann_btn.setStyleSheet(self.btn_new_stylesheet)
-        else:
-            self.edit_ann_btn.setStyleSheet("")
-        self.centralWidget().setFocus()
+        if self.manager.valid():
+            self.edit_mode = not self.edit_mode
+            if self.edit_mode:
+                self.edit_ann_btn.setStyleSheet(self.btn_new_stylesheet)
+            else:
+                self.edit_ann_btn.setStyleSheet("")
+            self.centralWidget().setFocus()
     
     @Slot()
     def on_check_ann_btn_clicked(self):
@@ -835,6 +842,7 @@ class AnnWindow(QMainWindow):
 
     @Slot(QTableWidgetItem)
     def on_annotation_table_item_changed(self, item: QTableWidgetItem):
+        assert self.manager.valid()
         row, col = item.row(), item.column()
         assert col == 1 or col == 2
         table = item.tableWidget()
@@ -860,38 +868,44 @@ class AnnWindow(QMainWindow):
 
     @Slot(QTableWidgetItem)
     def on_double_click_breakpoint_table_item(self, item: QTableWidgetItem):
-        frame_id = int(item.text())
-        self.seek(frame_id)
+        if self.manager.valid():
+            frame_id = int(item.text())
+            self.seek(frame_id)
 
     @Slot()
     def on_breakpoint_btn_clicked(self):
-        self.manager.add_breakpoint(self.manager.view_frame_id)
-        self.view_update_by_manager(breakpoint_update=True)
+        if self.manager.valid():
+            self.manager.add_breakpoint(self.manager.view_frame_id)
+            self.view_update_by_manager(breakpoint_update=True)
 
     @Slot()
     def on_sort_ann_btn_clicked(self):
-        self.manager.annotation_manager.sort()
-        self.view_update_by_manager(ann_update=True)
+        if self.manager.valid():
+            self.manager.annotation_manager.sort()
+            self.view_update_by_manager(ann_update=True)
 
     @Slot()
     def on_remove_ann_btn_clicked(self):
-        selected = {}
-        for k, table in self.annotation_tables.items():
-            cur_remove = [item.row() for item in table.selectedItems()]
-            cur_remove = [i for i in cur_remove if i >= 0]
-            selected[k] = cur_remove
-        self.manager.remove_annotations(selected)
-        self.view_update_by_manager(ann_update=True, button_update=True)
+        if self.manager.valid():
+            selected = {}
+            for k, table in self.annotation_tables.items():
+                cur_remove = [item.row() for item in table.selectedItems()]
+                cur_remove = [i for i in cur_remove if i >= 0]
+                selected[k] = cur_remove
+            self.manager.remove_annotations(selected)
+            self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot()
     def on_save_ann_btn_clicked(self):
-        self.manager.save_event_annotations()
-        self.centralWidget().setFocus()
+        if self.manager.valid():
+            self.manager.save_event_annotations()
+            self.centralWidget().setFocus()
 
     @Slot(QPushButton)
     def on_event_btn_clicked(self, btn: QPushButton):
-        self.manager.event_button_clicked(btn.text())
-        self.view_update_by_manager(button_update=True, ann_update=True)
+        if self.manager.valid():
+            self.manager.event_button_clicked(btn.text())
+            self.view_update_by_manager(button_update=True, ann_update=True)
 
     def closeEvent(self, event) -> None:
         if self.show_save_dialog() < 0:
@@ -903,6 +917,8 @@ class AnnWindow(QMainWindow):
         return super().closeEvent(event)
 
     def keyPressEvent(self, event):
+        if not self.manager.valid():
+            return
         if event.key() == Qt.Key.Key_A:
             if event.isAutoRepeat():
                 self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
@@ -925,6 +941,8 @@ class AnnWindow(QMainWindow):
         return super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event) -> None:
+        if not self.manager.valid():
+            return
         if event.key() == Qt.Key.Key_Space:
             self.toggle()
         return super().keyReleaseEvent(event)

@@ -132,7 +132,8 @@ class AnnotationManager:
         all_anns = []
         for k, ann in self.annotations.items():
             all_anns.extend([str(a) for a in ann])
-        content = "\n".join(all_comments) + "\n" +  "\n".join(all_anns)
+        
+        content = "\n".join(all_comments + all_anns)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
 

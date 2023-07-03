@@ -395,10 +395,11 @@ class AnnWindowManager:
             self.state = self.State.IDLE
 
     def save_event_annotations(self):
-        if self.annotation_path is None:
-            self.annotation_path = self.default_annotation_path()
-        self.annotation_manager.save(self.annotation_path)
-        self.is_dirty = False
+        if self.valid():
+            if self.annotation_path is None:
+                self.annotation_path = self.default_annotation_path(self.video_meta.name)
+            self.annotation_manager.save(self.annotation_path)
+            self.is_dirty = False
 
     def annotations_tuple_list(self):
         return self.annotation_manager.annotations_tuple_list()

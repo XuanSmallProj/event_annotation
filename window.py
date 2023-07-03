@@ -339,6 +339,7 @@ class AnnWindowManager:
         self.annotation_manager.add_annotation(name, start_frame, end_frame)
 
     def modify_annotation(self, group_name, idx, event_name, start_frame, end_frame):
+        self.is_dirty = True
         self.annotation_manager.modify_annotation(
             group_name, idx, event_name, start_frame, end_frame
         )

@@ -831,7 +831,8 @@ class AnnWindow(QMainWindow):
 
     @Slot(QTableWidgetItem)
     def on_annotation_table_item_changed(self, item: QTableWidgetItem):
-        row = item.row()
+        row, col = item.row(), item.column()
+        assert col == 1 or col == 2
         table = item.tableWidget()
         group_name = table.name
         event_name = table.item(row, 0).text()
@@ -846,7 +847,12 @@ class AnnWindow(QMainWindow):
             self.manager.modify_annotation(
                 group_name, row, event_name, start_frame, end_frame
             )
-        self.view_update_by_manager(ann_update=True, button_update=True)
+        table.blockSignals(True)
+        ann = self.manager.annotation_manager.annotations[table.name][row]
+        t = ann.f0 if col == 1 else ann.f1
+        item.setText(str(t))
+        table.blockSignals(False)
+        # self.view_update_by_manager(ann_update=True, button_update=True)
 
     @Slot(QTableWidgetItem)
     def on_double_click_breakpoint_table_item(self, item: QTableWidgetItem):

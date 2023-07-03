@@ -12,10 +12,10 @@ def check_partition(groupname, annotations: List[Annotation], total_frames=None)
     for i, ann in enumerate(annotations):
         if i == 0:
             if ann.f0 != 0:
-                errs.append(f"{groupname}: {ann[i]}应从0开始")
+                errs.append(f"{groupname}: {annotations[i]}应从0开始")
                 break
         elif last != ann.f0 - 1:
-            errs.append(f"{groupname}: {ann[i-1]}和{ann[i]}不连续")
+            errs.append(f"{groupname}: {annotations[i-1]}和{annotations[i]}不连续")
             continual = False
             break
         last = ann.f1
@@ -31,7 +31,7 @@ def check_non_overlap(groupname, annotations: List[Annotation]):
     last = -1
     for i, ann in enumerate(annotations):
         if i > 0 and ann.f0 <= last:
-            errs.append(f"{groupname}: {ann[i-1]}和{ann[i]}有重叠部分")
+            errs.append(f"{groupname}: {annotations[i-1]}和{annotations[i]}有重叠部分")
         last = ann.f1
     return errs
 

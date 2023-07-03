@@ -84,6 +84,7 @@ class Thread(QThread):
         self.view_playrate = 1
 
         self.buffer = []
+        self.buffer_disabled = True
         self.total_frames = 0
 
         self.last_update_t = 0
@@ -127,7 +128,12 @@ class Thread(QThread):
 
     def open(self, path):
         self.pause(show_current_frame=False)
+        self.clear_buffer()
+        self.buffer_disabled = True
         self.q_cmd.put(Msg(msgtp.OPEN, self.v_id, path), block=False)
+
+    def open_ack(self, v_id):
+        self.q_cmd.put(Msg(msgtp.OPEN_ACK, v_id, None), block=False)
 
     def play(self):
         self.paused = False
@@ -176,9 +182,6 @@ class Thread(QThread):
     def frame_ack(self, v_id, shm_start, shm_len):
         self.q_cmd.put(Msg(msgtp.FRAME_ACK, v_id, (shm_start, shm_len)), block=False)
 
-    def open_ack(self, v_id):
-        self.q_cmd.put(Msg(msgtp.OPEN_ACK, v_id, None), block=False)
-
     def change_view_image(self, frame_id, frame):
         h, w, ch = frame.shape
         img = QImage(frame.data, w, h, ch * w, QImage.Format_RGB888)
@@ -218,7 +221,7 @@ class Thread(QThread):
             if msg.type == msgtp.VIDEO_FRAMES:
                 v_id, frame_id, rate, shm_id, frame_cnt, arr_shape, arr_type = msg.data
                 accepted = False
-                if v_id == self.v_id:
+                if not self.buffer_disabled and v_id == self.v_id:
                     assert (
                         self.shm_mat.dtype == arr_type
                         and self.shm_mat.shape == arr_shape
@@ -255,6 +258,7 @@ class Thread(QThread):
                 self.view_next_id = 0
                 self.view_last_to_show = 0
                 self.view_playrate = 1
+                self.buffer_disabled = False
                 self.seek(0)
                 self.open_ack(self.v_id)
 

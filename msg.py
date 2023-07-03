@@ -1,15 +1,18 @@
 from enum import IntEnum, auto
 
 class MsgType(IntEnum):
+    # cmd to video
     CLOSE = 0
     OPEN = auto()
     READ = auto()
     FRAME_ACK = auto()
     OPEN_ACK = auto()
 
+    # video to cmd
     VIDEO_OPEN_ACK = auto()
     VIDEO_FRAMES = auto()
 
+    # view to cmd
     VIEW_OPEN = auto()
     VIEW_OPEN_ANN = auto()
     VIEW_PAUSE = auto()

@@ -7,7 +7,7 @@ class TimeStamp:
         self.hour = hour
         self.minute = minute
         self.second = second
-    
+
     def __str__(self):
         return "{:02d}:{:02d}:{:02d}".format(self.hour, self.minute, self.second)
 
@@ -21,7 +21,7 @@ class TimeStamp:
 
     def to_second(self):
         return self.hour * 3600 + self.minute * 60 + self.second
-    
+
     def cmp(self, t: "TimeStamp"):
         if self.hour == t.hour:
             if self.minute == t.minute:
@@ -38,12 +38,13 @@ class TimeStamp:
 
     def gt(self, t: "TimeStamp"):
         return self.cmp(t) > 0
-    
+
     def le(self, t: "TimeStamp"):
         return self.cmp(t) <= 0
-    
+
     def ge(self, t: "TimeStamp"):
         return self.cmp(t) >= 0
+
 
 class VideoMetaData:
     def __init__(self, path, total_frames, fps):
@@ -73,6 +74,7 @@ class VideoMetaData:
         if isinstance(t, TimeStamp):
             t = t.to_second()
         return round(t * self.fps)
+
 
 def get_video_name(path):
     basename = os.path.basename(path)

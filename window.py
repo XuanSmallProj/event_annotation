@@ -370,7 +370,7 @@ class AnnWindowManager:
         self.view_frame_id = 0
         self.is_dirty = False
         self.playrate = 1
-    
+
     def open_ann(self, ann_path):
         if self.valid() and os.path.exists(ann_path):
             self.annotation_path = ann_path
@@ -402,7 +402,9 @@ class AnnWindowManager:
     def save_event_annotations(self):
         if self.valid():
             if self.annotation_path is None:
-                self.annotation_path = self.default_annotation_path(self.video_meta.name)
+                self.annotation_path = self.default_annotation_path(
+                    self.video_meta.name
+                )
             self.annotation_manager.save(self.annotation_path)
             self.is_dirty = False
 
@@ -716,7 +718,7 @@ class AnnWindow(QMainWindow):
         if self.show_save_dialog() < 0:
             return
         self.q_view.put(Msg(msgtp.VIEW_OPEN, -1, img_path), block=False)
-    
+
     @Slot()
     def view_open_ann(self):
         ann_path, _ = QFileDialog.getOpenFileName()
@@ -826,7 +828,7 @@ class AnnWindow(QMainWindow):
             else:
                 self.edit_ann_btn.setStyleSheet("")
             self.centralWidget().setFocus()
-    
+
     @Slot()
     def on_check_ann_btn_clicked(self):
         if self.manager.valid():

@@ -176,7 +176,9 @@ class Video:
                     if self.frame_cur == self.total_frames - 1:
                         self.frame_cur += self.sample_rate
                     else:
-                        self.frame_cur = min(self.frame_cur + self.sample_rate, self.total_frames - 1)
+                        self.frame_cur = min(
+                            self.frame_cur + self.sample_rate, self.total_frames - 1
+                        )
                     cur_shm_begin += 1
 
                 self.frame_rd += 1

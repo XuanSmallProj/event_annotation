@@ -827,7 +827,7 @@ class AnnWindow(QMainWindow):
                 self.edit_ann_btn.setStyleSheet(self.btn_new_stylesheet)
             else:
                 self.edit_ann_btn.setStyleSheet("")
-            self.centralWidget().setFocus()
+        self.centralWidget().setFocus()
 
     @Slot()
     def on_check_ann_btn_clicked(self):
@@ -841,6 +841,7 @@ class AnnWindow(QMainWindow):
                 if not cur_msg.endswith("OK!"):
                     cur_msg += " OK!"
                 self.status_bar.showMessage(cur_msg)
+        self.centralWidget().setFocus()
 
     @Slot(QTableWidgetItem)
     def on_annotation_table_item_changed(self, item: QTableWidgetItem):
@@ -901,7 +902,7 @@ class AnnWindow(QMainWindow):
     def on_save_ann_btn_clicked(self):
         if self.manager.valid():
             self.manager.save_event_annotations()
-            self.centralWidget().setFocus()
+        self.centralWidget().setFocus()
 
     @Slot(QPushButton)
     def on_event_btn_clicked(self, btn: QPushButton):

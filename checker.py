@@ -3,6 +3,8 @@ from annotation import AnnotationManager, sort_annotations, Annotation
 from utils import VideoMetaData
 from typing import Optional, List
 import itertools
+import glob
+import os
 
 
 def check_partition(groupname, annotations: List[Annotation], total_frames=None):
@@ -121,10 +123,29 @@ def main():
     parser.add_argument("-a", "--annotation", required=True, help="标注路径")
     parser.add_argument("-p", "--path", default="", help="视频路径")
     opt = parser.parse_args()
-    v_path = opt.path if opt.path else None
-    err_list = check_from_file(opt.annotation, v_path)
-    for err in err_list:
-        print(err)
+    v_path = glob.glob(opt.path, recursive=True) if opt.path else []
+    a_path = glob.glob(opt.annotation, recursive=True)
+
+    for ann_path in a_path:
+        basename = os.path.basename(ann_path)
+        video_name, ext = os.path.splitext(basename)
+        if ext != ".txt":
+            continue
+        video_path = None
+        for v in v_path:
+            basename = os.path.basename(v)
+            v_name, ext = os.path.splitext(basename)
+            if ext == ".mp4" and v_name == video_name:
+                video_path = v
+                break
+
+        print(f"{video_name} {ann_path} {video_path}:")
+        err_list = check_from_file(ann_path, video_path)
+        if not err_list:
+            print("No problem")
+        else:
+            for err in err_list:
+                print(err)
 
 
 if __name__ == "__main__":

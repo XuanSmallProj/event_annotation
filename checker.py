@@ -56,6 +56,8 @@ def check(ann_manager: AnnotationManager, video_meta: Optional[VideoMetaData] = 
     3. 镜头拉近和镜头拉远之间不能重叠
     4. 视角切换只能是一帧
     5. 视角切换不能在变化事件、镜头情况中的事件的中间或者末尾
+    6. 回放中的事件要么包含整个切换事件，要么与切换事件没有交集
+    7. 一般情况下切换事件与镜头事件无交集，除非是手册中指明的特殊情况
     """
     errs = []
     total_frames = video_meta.total_frames if video_meta else None
@@ -104,6 +106,49 @@ def check(ann_manager: AnnotationManager, video_meta: Optional[VideoMetaData] = 
                     continue
                 if ann.f0 < vp_ann.f0 and ann.f1 >= vp_ann.f0:
                     errs.append(f"{vp_ann}切割了{ann}")
+    
+    switch_annotations = [ann for ann in change_annotations if ann.event_name == "切换"]
+
+    # 回放中的事件要么包含整个切换事件，要么与切换事件没有交集
+    for pb_ann in playback_annotations:
+        for sw_ann in switch_annotations:
+            if pb_ann.overlap(sw_ann) and not pb_ann.contain(sw_ann):
+                errs.append(f"{pb_ann}与{sw_ann}相交")
+    
+    # 一般情况下切换事件与镜头事件无交集，除非是手册中指明的特殊情况
+    for sw_ann in switch_annotations:
+        special = False
+        for cm_ann in camera_annotations:
+            if cm_ann.event_name == "视角切换":
+                continue
+            elif cm_ann.equal(sw_ann):
+                special = True
+            else:
+                prev_shot, next_shot = False, False
+                # 如果前/后存在变化事件起止都是同一帧，那么说明该切换应该向前/后延长一帧再与镜头事件进行比较
+                for ch_ann in change_annotations:
+                    if ch_ann.f0 == ch_ann.f1:
+                        if ch_ann.f0 == sw_ann.f0 - 1:
+                            prev_shot = True
+                        elif ch_ann.f0 == sw_ann.f1 + 1:
+                            next_shot = True
+                f0, f1 = sw_ann.f0, sw_ann.f1
+                if prev_shot:
+                    f0 -= 1
+                if next_shot:
+                    f1 += 1
+                if f0 == cm_ann.f0 and f1 == cm_ann.f1:
+                    special = True
+
+            if special:
+                break
+
+        if special:
+            continue
+
+        for cm_ann in camera_annotations:
+            if cm_ann.overlap(sw_ann):
+                errs.append(f"{cm_ann}与{sw_ann}相交")
 
     return errs
 

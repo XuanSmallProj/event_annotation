@@ -16,6 +16,14 @@ class Annotation:
         if e.f1 >= self.f0 and e.f1 <= self.f1:
             return True
         return False
+    
+    def contain(self, e: "Annotation") -> bool:
+        if self.f0 <= e.f0 and self.f1 >= e.f1:
+            return True
+        return False
+    
+    def equal(self, e: "Annotation") -> bool:
+        return self.contain(e) and e.contain(self)
 
     def __str__(self):
         return f"{self.event_name},{self.f0},{self.f1}"

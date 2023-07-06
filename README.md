@@ -38,7 +38,7 @@ A/D：暂停时候进行后退/前进，连续按键会加速。
 ### 检查工具说明
 可以通过`python checker.py -a <annotation_path> -p <video_path>`来进行检查，相比于图形界面的检查工具，使用命令行的优势是可以同时检查多个文件。
 
-注意，如果使用glob匹配多个文件，需要将参数放在双引号中，例如`python checker.py -a "dataset/annotate_event/v1*.txt -p "dataset/parts/v1*.mp4"`就是检查所有以v1开头的标注和视频。
+注意，如果使用glob匹配多个文件，需要将参数放在双引号中，例如`python checker.py -a "dataset/annotate_event/v1*.txt" -p "dataset/parts/v1*.mp4"`就是检查所有以v1开头的标注和视频。
 
 ## 视频截取工具使用说明
 视频截取工具能够将之前标注的视频片段从原视频截取出来。

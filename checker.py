@@ -137,7 +137,9 @@ def check(ann_manager: AnnotationManager, video_meta: Optional[VideoMetaData] = 
                     f0 -= 1
                 if next_shot:
                     f1 += 1
-                if f0 == cm_ann.f0 and f1 == cm_ann.f1:
+                prev_match = sw_ann.f0 == cm_ann.f0 or f0 == cm_ann.f0
+                after_match = sw_ann.f1 == cm_ann.f1 or f1 == cm_ann.f1
+                if prev_match and after_match:
                     special = True
 
             if special:

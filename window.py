@@ -23,6 +23,7 @@ from PySide6.QtCore import Signal, Slot, QThread, Qt
 from PySide6.QtGui import QImage, QPixmap, QAction
 from multiprocessing import Queue
 from msg import Msg, MsgType as msgtp
+from constants import Config
 import numpy as np
 import time
 import queue
@@ -923,22 +924,32 @@ class AnnWindow(QMainWindow):
         if not self.manager.valid():
             return
         if event.key() == Qt.Key.Key_A:
-            # if event.isAutoRepeat():
-            #     self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
-            # else:
-            #     self.manager.navigate_repeat = 0
-            # self.navigate_back(1 * 2 ** (self.manager.navigate_repeat))
-
-            if not event.isAutoRepeat():
+            if event.isAutoRepeat():
+                self.manager.navigate_repeat += 1
+                if 2**self.manager.navigate_repeat > Config.FRAME_MOVE_MAX:
+                    self.manager.navigate_repeat -= 1
+            else:
                 self.manager.navigate_repeat = 0
-            self.navigate_back(5)
+
+            if Config.FRAME_PER_BACK == "exp":
+                cnt_frames = 2**self.manager.navigate_repeat
+            else:
+                cnt_frames = Config.FRAME_PER_BACK
+            self.navigate_back(cnt_frames)
 
         elif event.key() == Qt.Key.Key_D:
             if event.isAutoRepeat():
                 self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
+                if 2**self.manager.navigate_repeat > Config.FRAME_MOVE_MAX:
+                    self.manager.navigate_repeat -= 1
             else:
                 self.manager.navigate_repeat = 0
-            self.navigate_forward(1 * 2 ** (self.manager.navigate_repeat))
+            
+            if Config.FRAME_PER_FORWARD == "exp":
+                cnt_frames = 2**self.manager.navigate_repeat
+            else:
+                cnt_frames = Config.FRAME_PER_FORWARD
+            self.navigate_forward(cnt_frames)
 
         elif event.key() >= Qt.Key.Key_1 and event.key() <= Qt.Key.Key_9:
             index = event.key() - Qt.Key.Key_1

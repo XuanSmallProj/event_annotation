@@ -923,11 +923,15 @@ class AnnWindow(QMainWindow):
         if not self.manager.valid():
             return
         if event.key() == Qt.Key.Key_A:
-            if event.isAutoRepeat():
-                self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
-            else:
+            # if event.isAutoRepeat():
+            #     self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
+            # else:
+            #     self.manager.navigate_repeat = 0
+            # self.navigate_back(1 * 2 ** (self.manager.navigate_repeat))
+
+            if not event.isAutoRepeat():
                 self.manager.navigate_repeat = 0
-            self.navigate_back(1 * 2 ** (self.manager.navigate_repeat))
+            self.navigate_back(5)
 
         elif event.key() == Qt.Key.Key_D:
             if event.isAutoRepeat():

@@ -23,7 +23,7 @@ from PySide6.QtCore import Signal, Slot, QThread, Qt
 from PySide6.QtGui import QImage, QPixmap, QAction
 from multiprocessing import Queue
 from msg import Msg, MsgType as msgtp
-from constants import Config
+import constants
 import numpy as np
 import time
 import queue
@@ -926,29 +926,29 @@ class AnnWindow(QMainWindow):
         if event.key() == Qt.Key.Key_A:
             if event.isAutoRepeat():
                 self.manager.navigate_repeat += 1
-                if 2**self.manager.navigate_repeat > Config.FRAME_MOVE_MAX:
+                if 2**self.manager.navigate_repeat > constants.Config.FRAME_MOVE_MAX:
                     self.manager.navigate_repeat -= 1
             else:
                 self.manager.navigate_repeat = 0
 
-            if Config.FRAME_PER_BACK == "exp":
+            if constants.Config.FRAME_PER_BACK == "exp":
                 cnt_frames = 2**self.manager.navigate_repeat
             else:
-                cnt_frames = Config.FRAME_PER_BACK
+                cnt_frames = constants.Config.FRAME_PER_BACK
             self.navigate_back(cnt_frames)
 
         elif event.key() == Qt.Key.Key_D:
             if event.isAutoRepeat():
                 self.manager.navigate_repeat = min(4, self.manager.navigate_repeat + 1)
-                if 2**self.manager.navigate_repeat > Config.FRAME_MOVE_MAX:
+                if 2**self.manager.navigate_repeat > constants.Config.FRAME_MOVE_MAX:
                     self.manager.navigate_repeat -= 1
             else:
                 self.manager.navigate_repeat = 0
             
-            if Config.FRAME_PER_FORWARD == "exp":
+            if constants.Config.FRAME_PER_FORWARD == "exp":
                 cnt_frames = 2**self.manager.navigate_repeat
             else:
-                cnt_frames = Config.FRAME_PER_FORWARD
+                cnt_frames = constants.Config.FRAME_PER_FORWARD
             self.navigate_forward(cnt_frames)
 
         elif event.key() >= Qt.Key.Key_1 and event.key() <= Qt.Key.Key_9:

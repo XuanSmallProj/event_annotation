@@ -58,6 +58,7 @@ def check(ann_manager: AnnotationManager, video_meta: Optional[VideoMetaData] = 
     5. 视角切换不能在变化事件、镜头情况中的事件的中间或者末尾
     6. 回放中的事件要么包含整个切换事件，要么与切换事件没有交集
     7. 一般情况下切换事件与镜头事件无交集，除非是手册中指明的特殊情况
+    8. 不能出现两个连续的切换事件
     """
     errs = []
     total_frames = video_meta.total_frames if video_meta else None
@@ -151,6 +152,13 @@ def check(ann_manager: AnnotationManager, video_meta: Optional[VideoMetaData] = 
         for cm_ann in camera_annotations:
             if cm_ann.overlap(sw_ann):
                 errs.append(f"{cm_ann}与{sw_ann}相交")
+
+    # 不能出现两个连续的切换事件
+    for sw_ann1 in switch_annotations:
+        for sw_ann2 in switch_annotations:
+            if sw_ann1.f0 == sw_ann2.f1 + 1:
+                errs.append(f"{sw_ann2}与{sw_ann1}连续")
+                break
 
     return errs
 

@@ -11,7 +11,7 @@ from vstat import (
 )
 import os
 import json
-from utils import annotations_from_str, VideoMetaData, TimeStamp
+from utils import VideoMetaData, TimeStamp
 import cv2
 
 
@@ -104,7 +104,18 @@ def download_without_extract(cnt, meta=None):
     return len(to_download)
 
 
+def annotations_from_str(s: str):
+    anns = []
+    for line in s.split("\n"):
+        if line.startswith('#') or (not line):
+            continue
+        sep = line.strip().split(' ')
+        t0, t1 = TimeStamp.from_str(sep[0]), TimeStamp.from_str(sep[1])
+        anns.append((t0, t1))
+    return anns
+
 def extract(v, meta=None):
+    print(f"警告：抽帧后的视频帧率和原视频一样，不能保证是25fps")
     if meta is None:
         meta = get_extract_meta()
 
@@ -112,9 +123,11 @@ def extract(v, meta=None):
         s = f.read()
         anns = annotations_from_str(s)
     info = {}
+    str_info = {}
     for i, ann in enumerate(anns):
-        info[i] = [str(ann[0]), str(ann[1])]
-    meta[v] = info
+        info[i] = [ann[0], ann[1]]
+        str_info[i] = [str(ann[0]), str(ann[1])]
+    meta[v] = str_info
 
     cap = cv2.VideoCapture(f"dataset/{v}.mp4")
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -129,7 +142,7 @@ def extract(v, meta=None):
     metadata = VideoMetaData(f"dataset/{v}.mp4", total_frames, fps)
 
     for k, val in info.items():
-        t0, t1 = TimeStamp.from_str(val[0]), TimeStamp.from_str(val[1])
+        t0, t1 = val[0], val[1]
         fstart, fend = metadata.time_to_frame(t0), metadata.time_to_frame(t1)
         v_writer = cv2.VideoWriter(f"dataset/parts/{v}_{k}.mp4", fourcc, fps, imgsz)
 

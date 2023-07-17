@@ -100,14 +100,12 @@ def check(ann_manager: AnnotationManager, video_meta: Optional[VideoMetaData] = 
         if vp_ann.f0 != vp_ann.f1:
             errs.append(f"{vp_ann}超过一帧")
         else:
-            for ann in itertools.chain(
-                change_annotations, camera_annotations
-            ):
+            for ann in itertools.chain(change_annotations, camera_annotations):
                 if ann.f0 == vp_ann.f0:
                     continue
                 if ann.f0 < vp_ann.f0 and ann.f1 >= vp_ann.f0:
                     errs.append(f"{vp_ann}切割了{ann}")
-    
+
     switch_annotations = [ann for ann in change_annotations if ann.event_name == "切换"]
 
     # 回放中的事件要么包含整个切换事件，要么与切换事件没有交集
@@ -115,7 +113,7 @@ def check(ann_manager: AnnotationManager, video_meta: Optional[VideoMetaData] = 
         for sw_ann in switch_annotations:
             if pb_ann.overlap(sw_ann) and not pb_ann.contain(sw_ann):
                 errs.append(f"{pb_ann}与{sw_ann}相交")
-    
+
     # 一般情况下切换事件与镜头事件无交集，除非是手册中指明的特殊情况
     for sw_ann in switch_annotations:
         special = False
@@ -181,6 +179,7 @@ def main():
     v_path = glob.glob(opt.path, recursive=True) if opt.path else []
     a_path = glob.glob(opt.annotation, recursive=True)
 
+    ok = True
     for ann_path in a_path:
         basename = os.path.basename(ann_path)
         video_name, ext = os.path.splitext(basename)
@@ -201,6 +200,9 @@ def main():
         else:
             for err in err_list:
                 print(err)
+            ok = False
+    if not ok:
+        exit(-1)
 
 
 if __name__ == "__main__":
